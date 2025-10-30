@@ -1,20 +1,16 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 3.0)
+ * ARQUIVO: js/main.js (VERSÃO 3.1)
  * O CÉREBRO DO APLICATIVO (DASHBOARD E LÓGICA)
  *
  * NOVIDADES:
- * - Implementa a Arquitetura Híbrida (Firestore + Storage)
- * - Adiciona o formulário "Criar Questão" para o Admin.
- * - Adiciona a lógica "Publicar Banco de Questões" para o Admin.
+ * - CORRIGE o bug 'storage/invalid-format' ao publicar.
+ * (Troca 'data_url' por 'raw' no uploadString)
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-// Importa os serviços (auth, db) e o novo (storage) do auth.js
 import { auth, db, storage } from './auth.js'; 
-
-// Importa funções do Firebase que vamos usar aqui
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { 
     doc, getDoc, collection, addDoc, getDocs, query, where 
@@ -59,11 +55,7 @@ async function loadDashboard(user) {
 }
 
 // --- [ PARTE 5: GESTOR DE EVENTOS PRINCIPAL ] ---
-// Usamos um único gestor de eventos no 'appContent' para
-// gerir todos os cliques e submissões de formulários
-// que acontecem dentro dele.
 appContent.addEventListener('click', async (e) => {
-    // Procura por um botão com 'data-action'
     const action = e.target.dataset.action;
     
     if (action === 'show-create-question-form') {
@@ -85,9 +77,8 @@ appContent.addEventListener('click', async (e) => {
 });
 
 appContent.addEventListener('submit', async (e) => {
-    e.preventDefault(); // Impede o recarregamento da página
+    e.preventDefault(); 
     
-    // Gestor do formulário de criação de questão
     if (e.target.id === 'form-create-question') {
         await handleCreateQuestionSubmit(e.target);
     }
@@ -100,7 +91,6 @@ async function handleCreateQuestionSubmit(form) {
     statusEl.textContent = 'A guardar...';
     
     try {
-        // 1. Pega os dados do formulário
         const formData = new FormData(form);
         const questaoData = {
             materia: formData.get('materia'),
@@ -113,15 +103,12 @@ async function handleCreateQuestionSubmit(form) {
             },
             correta: formData.get('correta'),
             comentario: formData.get('comentario'),
-            // (Opcional) Adiciona um ID único, ex: ETI-001
             id: `${formData.get('materia').toUpperCase()}-${Date.now().toString().slice(-5)}`
         };
 
-        // 2. Salva o novo documento na coleção "questoes"
         const questoesRef = collection(db, 'questoes');
         await addDoc(questoesRef, questaoData);
 
-        // 3. Limpa o formulário e dá feedback
         statusEl.textContent = 'Questão guardada com sucesso!';
         statusEl.className = 'text-green-400 text-sm mt-4';
         form.reset();
@@ -174,7 +161,12 @@ async function handlePublishMateria(materia, button) {
 
         // 4. Fazer o upload do ficheiro JSON
         statusEl.textContent = 'A fazer upload para o Storage...';
-        await uploadString(storageRef, jsonString, 'data_url');
+        
+        // ===============================================
+        // AQUI ESTÁ A CORREÇÃO (linha 160 aprox.)
+        // Trocámos 'data_url' por 'raw'
+        // ===============================================
+        await uploadString(storageRef, jsonString, 'raw');
         
         statusEl.textContent = `Sucesso! "${materia}.json" publicado com ${questoesArray.length} questões.`;
         statusEl.className = 'text-green-400 text-sm';
@@ -256,7 +248,7 @@ function renderStudentDashboard(userData) {
     `;
 }
 
-// (NOVO - HTML DO FORMULÁRIO DE QUESTÃO)
+// (HTML DO FORMULÁRIO DE QUESTÃO)
 function renderCreateQuestionForm() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
@@ -271,7 +263,7 @@ function renderCreateQuestionForm() {
                 
                 <div>
                     <label for="materia" class="${labelStyle}">Matéria (ex: etica, civil, penal)</label>
-                    <input type_ "text" id="materia" name="materia" required class="${inputStyle}">
+                    <input type="text" id="materia" name="materia" required class="${inputStyle}">
                 </div>
                 
                 <div>
@@ -328,7 +320,7 @@ function renderCreateQuestionForm() {
     `;
 }
 
-// (NOVO - HTML DA UI DE PUBLICAÇÃO)
+// (HTML DA UI DE PUBLICAÇÃO)
 function renderPublishUI() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     
