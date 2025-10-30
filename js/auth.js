@@ -238,10 +238,9 @@ function renderLoginForm(errorMsg = "") {
             <div class="text-sm text-center">
                 <a href="#" data-action="show-reset" class="font-medium text-blue-400 hover:text-blue-300">Esqueceu a senha?</a>
             </div>
-            <div class="text-sm text-center text-gray-400">
-                Não tem conta? 
-                <a href="#" data-action="show-register" class="font-medium text-blue-400 hover:text-blue-300">Crie uma aqui</a>
-            </div>
+            <div class="text-sm text-center">
+            <a href="#" data-action="show-reset" class="font-medium text-blue-400 hover:text-blue-300">Esqueceu a senha?</a>
+        </div>
         </div>
     `;
 }
@@ -327,4 +326,5 @@ function renderResetPasswordForm(errorMsg = "") {
             </div>
         </div>
     `;
+
 }
