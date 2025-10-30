@@ -2,6 +2,8 @@
  * ========================================================
  * ARQUIVO: js/main.js
  * O CÉREBRO DO APLICATIVO (DASHBOARD E LÓGICA)
+ *
+ * NOVA VERSÃO: Agora com distinção de ADMIN
  * ========================================================
  */
 
@@ -37,19 +39,25 @@ async function loadDashboard(user) {
     try {
         // 1. Informa ao utilizador que estamos a carregar os dados
         appContent.innerHTML = renderLoadingState();
-
-        // 2. Busca os dados do perfil (ex: nome) no Firestore
+        
+        // 2. Busca os dados do perfil (ex: nome e isAdmin) no Firestore
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
 
         if (userDoc.exists()) {
             const userData = userDoc.data();
             
-            // 3. Desenha o dashboard com os dados do utilizador
-            appContent.innerHTML = renderDashboard(userData);
-
-            // 4. (Futuro) Adiciona os event listeners do dashboard
-            // ex: addDashboardListeners();
+            // ===============================================
+            // AQUI ESTÁ A MÁGICA: A VERIFICAÇÃO DE ADMIN
+            // ===============================================
+            if (userData.isAdmin === true) {
+                // Se o campo 'isAdmin' for verdadeiro
+                appContent.innerHTML = renderAdminDashboard(userData);
+            } else {
+                // Para todos os outros alunos normais
+                appContent.innerHTML = renderStudentDashboard(userData);
+            }
+            // ===============================================
             
         } else {
             // Isto é uma segurança extra, mas o auth.js já deve ter tratado disto
@@ -61,19 +69,61 @@ async function loadDashboard(user) {
     }
 }
 
-
 // --- [ PARTE 5: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
 // Desenha o estado de "a carregar..."
 function renderLoadingState() {
-    return `<p class="text-gray-400">A carregar o seu progresso...</p>`;
+    return `<p class="text-gray-400">A carregar os seus dados...</p>`;
 }
 
-// Desenha o Dashboard principal
-// (POR AGORA, é um placeholder. Aqui é onde o seu Ciclo de Estudos vai viver)
-function renderDashboard(userData) {
+// ------ NOVO: PAINEL DO ADMINISTRADOR ------
+function renderAdminDashboard(userData) {
+    // Classes do Tailwind para os "cards"
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     
-    // Classes do Tailwind para os "cards" do dashboard
+    return `
+        <h1 class="text-3xl font-bold text-white mb-2">
+            Painel Administrativo
+        </h1>
+        <p class="text-lg text-blue-400 mb-8">
+            Bem-vindo, Admin ${userData.nome}!
+        </p>
+
+        <div class="grid md:grid-cols-2 gap-6">
+            
+            <div class="${cardStyle}">
+                <h2 class="text-2xl font-bold text-white mb-4">
+                    Gestão de Conteúdo
+                </h2>
+                <p class="text-gray-300 mb-4">
+                    Adicionar, editar ou remover questões do banco de dados.
+                </pos>
+                <button id="admin-gerir-questoes" 
+                        class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded hover:bg-blue-700 transition">
+                    Gerir Banco de Questões
+                </button>
+            </div>
+            
+            <div class="${cardStyle}">
+                <h2 class="text-2xl font-bold text-white mb-4">
+                    Gestão de Alunos
+                </h2>
+                <p class="text-gray-300 mb-4">
+                    Ver alunos, criar acessos e gerir senhas.
+                </p>
+                <a href="https://console.firebase.google.com/project/meu-planner-oab/authentication/users" 
+                   target="_blank" 
+                   class="block w-full text-center bg-gray-600 text-white font-semibold py-2 px-4 rounded hover:bg-gray-700 transition">
+                    Aceder Painel do Firebase
+                </a>
+            </div>
+        </div>
+    `;
+}
+
+// ------ (Alterado) PAINEL DO ALUNO ------
+function renderStudentDashboard(userData) {
+    // Classes do Tailwind para os "cards"
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     
     return `
@@ -101,10 +151,8 @@ function renderDashboard(userData) {
                 Ciclo de Estudos (Método Reverso)
             </h2>
             <p class="text-gray-300">
-                Aqui é onde a lógica principal do seu planner será implementada. 
-                Iremos mostrar as matérias do dia, permitir registar questões 
-                e atualizar o ciclo.
+                (Em breve) Aqui é onde a lógica principal do seu planner será implementada.
             </p>
-            </div>
+        </div>
     `;
 }
