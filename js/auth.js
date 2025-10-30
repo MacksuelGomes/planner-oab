@@ -1,8 +1,11 @@
 /*
  * ========================================================
- * ARQUIVO: js/auth.js
+ * ARQUIVO: js/auth.js (VERSÃO 2.0)
  * O CÉREBRO DA AUTENTICAÇÃO E O "PORTEIRO" DO APP
- * (V2 - Agora com Storage)
+ *
+ * NOVIDADES:
+ * - Adiciona importação e exportação do Firebase Storage.
+ * - Adiciona link "Voltar" nos formulários de login.
  * ========================================================
  */
 
@@ -22,19 +25,21 @@ import {
     getDoc,
     setDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-    
-// --- NOVO: IMPORTAR O STORAGE ---
-import { getStorage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+// (NOVA IMPORTAÇÃO para o Gerenciador de Questões)
+import { 
+    getStorage 
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
 
 // --- [ PARTE 2: CONFIGURAÇÃO DO FIREBASE ] ---
-// (O seu firebaseConfig que você já colou)
+// (A sua configuração que já está correta)
 const firebaseConfig = {
-  apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
-  authDomain: "meu-planner-oab.firebaseapp.com",
-  projectId: "meu-planner-oab",
-  storageBucket: "meu-planner-oab.firebasestorage.app",
-  messagingSenderId: "4187860413",
-  appId: "1:4187860413:web:b61239f784aaf5ed06f6d4"
+    apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
+    authDomain: "meu-planner-oab.firebaseapp.com",
+    projectId: "meu-planner-oab",
+    storageBucket: "meu-planner-oab.firebasestorage.app",
+    messagingSenderId: "4187860413",
+    appId: "1:4187860413:web:b61239f784aaf5ed06f6d4"
 };
 
 // --- [ PARTE 3: INICIAR O FIREBASE E EXPORTAR SERVIÇOS ] ---
@@ -42,15 +47,13 @@ const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-
-// --- NOVO: EXPORTAR O STORAGE ---
-export const storage = getStorage(app);
-
+export const storage = getStorage(app); // (NOVA EXPORTAÇÃO)
 
 // --- [ PARTE 4: SELETORES DO DOM (OS NOSSOS ECRÃS) ] ---
 const loadingScreen = document.getElementById('loading-screen');
 const authScreen = document.getElementById('auth-screen');
 const appScreen = document.getElementById('app-screen');
+
 const logoutButton = document.getElementById('logout-button');
 const userEmailElement = document.getElementById('user-email');
 
@@ -59,6 +62,7 @@ function showScreen(screenId) {
     loadingScreen.style.display = 'none';
     authScreen.style.display = 'none';
     appScreen.style.display = 'none';
+
     if (screenId === 'loading') {
         loadingScreen.style.display = 'flex';
     } else if (screenId === 'auth') {
@@ -74,6 +78,7 @@ onAuthStateChanged(auth, async (user) => {
         if (user) {
             const userDocRef = doc(db, 'users', user.uid);
             const userDoc = await getDoc(userDocRef);
+
             if (userDoc.exists()) {
                 userEmailElement.textContent = user.email;
                 showScreen('app');
@@ -114,9 +119,10 @@ authScreen.addEventListener('click', (e) => {
 });
 
 authScreen.addEventListener('submit', async (e) => {
-    e.preventDefault();
+    e.preventDefault(); 
     const messageEl = e.target.querySelector('#auth-message');
     
+    // --- [ AÇÃO: LOGIN ] ---
     if (e.target.id === 'form-login') {
         const email = e.target.email.value;
         const password = e.target.password.value;
@@ -127,10 +133,18 @@ authScreen.addEventListener('submit', async (e) => {
         }
     }
 
+    // --- [ AÇÃO: REGISTO ] ---
     if (e.target.id === 'form-register') {
-        // ... (o código de registo que já não usamos, mas não faz mal estar aqui)
+        const email = e.target.email.value;
+        const password = e.target.password.value;
+        try {
+            await createUserWithEmailAndPassword(auth, email, password);
+        } catch (error) {
+            messageEl.textContent = "Erro ao criar conta. Tente outro e-mail.";
+        }
     }
 
+    // --- [ AÇÃO: COMPLETAR PERFIL ] ---
     if (e.target.id === 'form-profile') {
         const nome = e.target.nome.value;
         const user = auth.currentUser;
@@ -143,8 +157,7 @@ authScreen.addEventListener('submit', async (e) => {
             await setDoc(userDocRef, {
                 nome: nome,
                 email: user.email,
-                criadoEm: new Date(),
-                isAdmin: false // Garantir que novos utilizadores nunca são admins
+                criadoEm: new Date()
             });
             userEmailElement.textContent = user.email;
             showScreen('app');
@@ -153,6 +166,7 @@ authScreen.addEventListener('submit', async (e) => {
         }
     }
     
+    // --- [ AÇÃO: RESET DE SENHA ] ---
     if (e.target.id === 'form-reset') {
         const email = e.target.email.value;
         try {
@@ -166,6 +180,8 @@ authScreen.addEventListener('submit', async (e) => {
 
 
 // --- [ PARTE 8: FUNÇÕES DE RENDERIZAÇÃO (HTML DOS FORMULÁRIOS) ] ---
+// (Com a sua alteração: link de registo removido e link de "Voltar" adicionado)
+
 function renderLoginForm(errorMsg = "") {
     return `
         <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
@@ -192,14 +208,56 @@ function renderLoginForm(errorMsg = "") {
             <div class="text-sm text-center">
                 <a href="#" data-action="show-reset" class="font-medium text-blue-400 hover:text-blue-300">Esqueceu a senha?</a>
             </div>
+            
+            <div class="text-sm text-center text-gray-400 mt-6 border-t border-gray-700 pt-4">
+                <a href="index.html" class="font-medium text-blue-400 hover:text-blue-300">
+                    &larr; Voltar à página inicial
+                </a>
             </div>
+        </div>
     `;
 }
 
-// (As outras funções de renderização: renderRegisterForm, renderProfileForm, renderResetPasswordForm...
-// podem ficar aqui, não faz mal. Vou omiti-las para ser breve, mas pode manter as suas)
+function renderRegisterForm(errorMsg = "") {
+    return `
+        <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
+            <h2 class="text-3xl font-bold text-center text-white">Criar Conta</h2>
+            <form id="form-register" class="space-y-6">
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-300">Email</o>
+                    <input type="email" id="email" name="email" required 
+                           class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-300">Senha</label>
+                    <input type="password" id="password" name="password" required 
+                           class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div id="auth-message" class="text-red-400 text-sm">${errorMsg}</div>
+                <div>
+                    <button type="submit" 
+                            class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 transition duration-300">
+                        Registar
+                    </button>
+                </div>
+            </form>
+            <div class="text-sm text-center text-gray-400">
+                Já tem conta? 
+                <a href="#" data-action="show-login" class="font-medium text-blue-400 hover:text-blue-300">Faça login</a>
+            </div>
+
+            <div class="text-sm text-center text-gray-400 mt-6 border-t border-gray-700 pt-4">
+                <a href="index.html" class="font-medium text-blue-400 hover:text-blue-300">
+                    &larr; Voltar à página inicial
+                </a>
+            </div>
+        </div>
+    `;
+}
 
 function renderProfileForm(user, errorMsg = "") {
+    // (Não adicionamos o link de "Voltar" aqui de propósito,
+    // pois o utilizador deve completar o perfil ou fazer logout.)
     return `
         <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
             <h2 class="text-3xl font-bold text-center text-white">Quase lá!</h2>
@@ -247,7 +305,12 @@ function renderResetPasswordForm(errorMsg = "") {
                 Lembrou-se da senha? 
                 <a href="#" data-action="show-login" class="font-medium text-blue-400 hover:text-blue-300">Faça login</a>
             </div>
+
+            <div class="text-sm text-center text-gray-400 mt-6 border-t border-gray-700 pt-4">
+                <a href="index.html" class="font-medium text-blue-400 hover:text-blue-300">
+                    &larr; Voltar à página inicial
+                </a>
+            </div>
         </div>
     `;
 }
-// (Também pode manter a renderRegisterForm)
