@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meu Planner OAB - Área do Aluno</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div id="loading-screen" class="flex items-center justify-center min-h-screen">
+        <div class="loader"></div> <span class="ml-4 text-gray-400 text-lg">A carregar...</span>
+    </div>
+
+    <div id="auth-screen" class="hidden min-h-screen flex items-center justify-center">
+        </div>
+
+    <div id="app-screen" class="hidden">
+        
+        <nav class="bg-gray-800 shadow-lg">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <span class="text-xl font-bold text-blue-400">Meu Planner OAB</span>
+                    </div>
+                    <div class="flex items-center">
+                        <span id="user-email" class="text-gray-300 mr-4"></span>
+                        <button id="logout-button" class="bg-red-600 px-3 py-1 rounded hover:bg-red-700 transition">
+                            Sair
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <main id="app-content" class="max-w-7xl mx-auto py-8 px-4">
+            </main>
+        
+    </div>
+
+
+    <script type="module" src="js/auth.js"></script>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
