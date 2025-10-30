@@ -1,25 +1,21 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 4.2)
- * O CÉREBRO DO APLICATIVO (DASHBOARD E LÓGICA)
+ * ARQUIVO: js/main.js (VERSÃO 5.0 - ARQUITETURA SIMPLIFICADA)
  *
  * NOVIDADES:
- * - Altera o método de download de 'getBytes' para 'getDownloadURL' + 'fetch'
- * para corrigir o erro 'storage/retry-limit-exceeded' (timeout).
+ * - REMOVE toda a lógica de "Publicar" e "Storage".
+ * - Altera o Aluno para ler as questões DIRETAMENTE do FIRESTORE.
+ * - Corrige todos os erros de 'Failed to fetch' e 'timeout'.
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-import { auth, db, storage } from './auth.js'; 
+// (Removemos o 'storage' - não é mais necessário)
+import { auth, db } from './auth.js'; 
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { 
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { 
-    ref, uploadString, 
-    // (MÓDULO ATUALIZADO) Trocamos getBytes por getDownloadURL
-    getDownloadURL 
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 // --- [ PARTE 2: SELETORES DO DOM ] ---
 const appContent = document.getElementById('app-content');
@@ -55,19 +51,14 @@ async function loadDashboard(user) {
     }
 }
 
-// --- [ PARTE 5: GESTOR DE EVENTOS PRINCIPAL ] ---
+// --- [ PARTE 5: GESTOR de EVENTOS PRINCIPAL ] ---
 appContent.addEventListener('click', async (e) => {
     const action = e.target.dataset.action;
     
     // --- Ações de Admin ---
     if (action === 'show-create-question-form') { appContent.innerHTML = renderCreateQuestionForm(); }
     if (action === 'show-list-questions') { await renderListQuestionsUI(); }
-    if (action === 'show-publish-ui') { appContent.innerHTML = renderPublishUI(); }
     if (action === 'admin-voltar-painel') { loadDashboard(auth.currentUser); }
-    if (action === 'publish-materia') {
-        const materia = e.target.dataset.materia;
-        await handlePublishMateria(materia, e.target);
-    }
     if (action === 'delete-question') {
         const docId = e.target.dataset.id;
         await handleDeleteQuestion(docId, e.target);
@@ -115,44 +106,7 @@ async function handleCreateQuestionSubmit(form) {
     }
 }
 
-// --- [ PARTE 7: LÓGICA DE ADMIN - PUBLICAR QUESTÕES ] ---
-// (Sem alteração)
-async function handlePublishMateria(materia, button) {
-    button.textContent = 'A publicar...';
-    button.disabled = true;
-    const statusEl = document.getElementById(`status-${materia}`);
-    statusEl.textContent = 'A procurar questões no Firestore...';
-    try {
-        const questoesRef = collection(db, 'questoes');
-        const q = query(questoesRef, where("materia", "==", materia));
-        const querySnapshot = await getDocs(q);
-        const questoesArray = [];
-        querySnapshot.forEach((doc) => { questoesArray.push(doc.data()); });
-        if (questoesArray.length === 0) {
-            statusEl.textContent = 'Nenhuma questão encontrada para esta matéria.';
-            button.textContent = `Publicar ${materia}`;
-            button.disabled = false; return;
-        }
-        statusEl.textContent = `A compilar ${questoesArray.length} questões...`;
-        const jsonData = { materia: materia, total_questoes: questoesArray.length, questoes: questoesArray };
-        const jsonString = JSON.stringify(jsonData);
-        const storageRef = ref(storage, `banco-questoes/${materia.toLowerCase()}.json`);
-        statusEl.textContent = 'A fazer upload para o Storage...';
-        await uploadString(storageRef, jsonString, 'raw');
-        statusEl.textContent = `Sucesso! "${materia}.json" publicado com ${questoesArray.length} questões.`;
-        statusEl.className = 'text-green-400 text-sm';
-        button.textContent = `Publicar ${materia}`;
-        button.disabled = false;
-    } catch (error) {
-        console.error("Erro ao publicar:", error);
-        statusEl.textContent = `Erro: ${error.message}`;
-        statusEl.className = 'text-red-400 text-sm';
-        button.textContent = `Publicar ${materia}`;
-        button.disabled = false;
-    }
-}
-
-// --- [ PARTE 8: LÓGICA DE ADMIN - APAGAR QUESTÃO ] ---
+// --- [ PARTE 7: LÓGICA DE ADMIN - APAGAR QUESTÃO ] ---
 // (Sem alteração)
 async function handleDeleteQuestion(docId, button) {
     if (!confirm('Tem a certeza que quer apagar esta questão? Esta ação não pode ser desfeita.')) { return; }
@@ -162,7 +116,7 @@ async function handleDeleteQuestion(docId, button) {
         await deleteDoc(doc(db, 'questoes', docId));
         const itemParaApagar = document.getElementById(`item-${docId}`);
         if (itemParaApagar) { itemParaApagar.remove(); }
-        alert('Questão apagada do Firestore! Lembre-se de "Publicar o Banco de Questões" de novo para atualizar o ficheiro dos alunos.');
+        // (Aviso de publicar removido, pois não é mais necessário)
     } catch (error) {
         console.error("Erro ao apagar:", error);
         button.textContent = 'Erro ao apagar';
@@ -171,84 +125,72 @@ async function handleDeleteQuestion(docId, button) {
 }
 
 
-// --- [ PARTE 9: LÓGICA DE ALUNO - INICIAR SESSÃO DE ESTUDO ] ---
+// --- [ PARTE 8: LÓGICA DE ALUNO - INICIAR SESSÃO DE ESTUDO ] ---
 // ===============================================
-// (LÓGICA DE DOWNLOAD TOTALMENTE ALTERADA)
+// (LÓGICA TOTALMENTE ALTERADA - LÊ DO FIRESTORE)
 // ===============================================
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); // Mostra "A carregar..."
 
     try {
-        // 1. Definir o caminho para o ficheiro no Storage
-        const filePath = `banco-questoes/${materia.toLowerCase()}.json`;
-        const storageRef = ref(storage, filePath);
+        // 1. Criar a consulta ao Firestore
+        const questoesRef = collection(db, 'questoes');
+        const q = query(questoesRef, where("materia", "==", materia));
 
-        // 2. Pedir ao Firebase o URL de download
-        // (Este passo já verifica a 'allow read' das suas Regras de Storage)
-        const url = await getDownloadURL(storageRef);
+        // 2. Executar a consulta
+        const querySnapshot = await getDocs(q);
+        
+        const questoesArray = [];
+        querySnapshot.forEach((doc) => {
+            questoesArray.push(doc.data());
+        });
 
-        // 3. Usar o 'fetch' do navegador para descarregar o ficheiro
-        const response = await fetch(url);
-        
-        // 4. Converter a resposta em JSON
-        const data = await response.json();
-        
-        if (!data.questoes || data.questoes.length === 0) {
-            appContent.innerHTML = `<p>Nenhuma questão encontrada para ${materia}.</p>`;
+        if (questoesArray.length === 0) {
+            appContent.innerHTML = `
+                <p class="text-gray-400">Nenhuma questão de "${materia}" encontrada.</p>
+                <button data-action="admin-voltar-painel" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>
+            `;
             return;
         }
         
         // 5. Iniciar o Quiz!
-        appContent.innerHTML = renderQuizUI(data.questoes, materia);
+        appContent.innerHTML = renderQuizUI(questoesArray, materia);
 
     } catch (error) {
-        console.error("Erro ao descarregar questões:", error);
-        if (error.code === 'storage/object-not-found') {
-            appContent.innerHTML = `
-                <p class="text-red-400">Erro: O banco de questões para "${materia}" ainda não foi publicado.</p>
-                <p class="text-gray-300 mt-2">Peça ao administrador para publicar esta matéria.</p>
-                <button data-action="admin-voltar-painel" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>
-            `;
-        } else if (error.code === 'storage/unauthorized') {
-             appContent.innerHTML = `
-                <p class="text-red-400">Erro de Permissão: Você não tem autorização para ler este banco de questões.</p>
-                <button data-action="admin-voltar-painel" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>
-            `;
-        } else {
-            appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>`;
-        }
+        console.error("Erro ao carregar questões do Firestore:", error);
+        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>`;
     }
 }
 
 
-// --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
+// --- [ PARTE 9: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
 function renderLoadingState() {
     return `<p class="text-gray-400">A carregar...</p>`;
 }
 
-// (PAINEL DE ADMIN - Sem alteração)
+// ===============================================
+// (PAINEL DE ADMIN ATUALIZADO - REMOVIDO "PUBLICAR")
+// ===============================================
 function renderAdminDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     return `
         <h1 class="text-3xl font-bold text-white mb-2">Painel Administrativo</h1>
         <p class="text-lg text-blue-400 mb-8">Bem-vindo, Admin ${userData.nome}!</p>
         <div class="grid md:grid-cols-2 gap-6">
+            
             <div class="${cardStyle}">
-                <h2 class="text-2xl font-bold text-white mb-4">Gestão de Questões</h2>
+                <h2 class="text-2xl font-bold text-white mb-4">Criar Questões</h2>
                 <p class="text-gray-300 mb-4">Adicionar questões individuais ao Firestore.</p>
                 <button data-action="show-create-question-form" class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded hover:bg-blue-700 transition">Criar Nova Questão</button>
             </div>
+            
             <div class="${cardStyle}">
                 <h2 class="text-2xl font-bold text-white mb-4">Listar / Apagar Questões</h2>
                 <p class="text-gray-300 mb-4">Ver e apagar questões existentes do Firestore.</p>
                 <button data-action="show-list-questions" class="w-full bg-yellow-600 text-white font-semibold py-2 px-4 rounded hover:bg-yellow-700 transition">Listar Questões</button>
             </div>
-            <div class="${cardStyle}">
-                <h2 class="text-2xl font-bold text-white mb-4">Publicar Alterações</h2>
-                <p class="text-gray-300 mb-4">Enviar as questões do Firestore para o Storage (para os alunos).</p>
-                <button data-action="show-publish-ui" class="w-full bg-green-600 text-white font-semibold py-2 px-4 rounded hover:bg-green-700 transition">Publicar Banco de Questões</button>
-            </div>
+            
             <div class="${cardStyle}">
                 <h2 class="text-2xl font-bold text-white mb-4">Gestão de Alunos</h2>
                 <p class="text-gray-300 mb-4">Ver alunos, criar acessos e gerir senhas.</p>
@@ -311,26 +253,7 @@ function renderCreateQuestionForm() {
     `;
 }
 
-// (UI DE PUBLICAÇÃO - Sem alteração)
-function renderPublishUI() {
-    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
-    const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
-    return `
-        <button data-action="admin-voltar-painel" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Painel</button>
-        <div class="${cardStyle}"><h2 class="text-2xl font-bold text-white mb-6">Publicar Banco de Questões</h2><p class="text-gray-300 mb-6">Isto irá ler todas as questões do Firestore e compilar os ficheiros JSON para os alunos no Storage.</p>
-            <div class="space-y-4">
-                ${materias.map(materia => `
-                    <div class="p-4 bg-gray-900 rounded-lg flex items-center justify-between">
-                        <span class="text-lg text-white font-medium">${materia}.json</span>
-                        <button data-action="publish-materia" data-materia="${materia}" class="bg-green-600 text-white font-semibold py-1 px-3 rounded hover:bg-green-700 transition text-sm">Publicar ${materia}</button>
-                    </div>
-                    <div id="status-${materia}" class="text-sm text-gray-400 ml-1"></div>
-                `).join('')}
-            </div>
-        </div>
-    `;
-}
-
+// (UI DE PUBLICAÇÃO - REMOVIDA)
 // (UI DE APAGAR - Sem alteração)
 async function renderListQuestionsUI() {
     appContent.innerHTML = renderLoadingState(); 
