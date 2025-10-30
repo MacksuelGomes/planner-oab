@@ -1,13 +1,11 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 4.1 - CORRIGIDA)
+ * ARQUIVO: js/main.js (VERSÃO 4.2)
  * O CÉREBRO DO APLICATIVO (DASHBOARD E LÓGICA)
  *
  * NOVIDADES:
- * - CORRIGE o erro de sintaxe fatal (vírgula) no 'catch'
- * - Constrói o Dashboard do Aluno (lista de matérias).
- * - Adiciona a lógica para descarregar o JSON do Storage.
- * - Adiciona a primeira versão do ecrã de "Quiz".
+ * - Altera o método de download de 'getBytes' para 'getDownloadURL' + 'fetch'
+ * para corrigir o erro 'storage/retry-limit-exceeded' (timeout).
  * ========================================================
  */
 
@@ -19,7 +17,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { 
     ref, uploadString, 
-    getBytes 
+    // (MÓDULO ATUALIZADO) Trocamos getBytes por getDownloadURL
+    getDownloadURL 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 // --- [ PARTE 2: SELETORES DO DOM ] ---
@@ -50,9 +49,6 @@ async function loadDashboard(user) {
         } else {
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
         }
-    // ===============================================
-    // A CORREÇÃO ESTÁ AQUI (A VÍRGULA FOI REMOVIDA)
-    // ===============================================
     } catch (error) { 
         console.error("Erro ao carregar dashboard:", error);
         appContent.innerHTML = `<p>Ocorreu um erro ao carregar seus dados.</p>`;
@@ -64,18 +60,10 @@ appContent.addEventListener('click', async (e) => {
     const action = e.target.dataset.action;
     
     // --- Ações de Admin ---
-    if (action === 'show-create-question-form') {
-        appContent.innerHTML = renderCreateQuestionForm();
-    }
-    if (action === 'show-list-questions') {
-        await renderListQuestionsUI();
-    }
-    if (action === 'show-publish-ui') {
-        appContent.innerHTML = renderPublishUI();
-    }
-    if (action === 'admin-voltar-painel') {
-        loadDashboard(auth.currentUser); 
-    }
+    if (action === 'show-create-question-form') { appContent.innerHTML = renderCreateQuestionForm(); }
+    if (action === 'show-list-questions') { await renderListQuestionsUI(); }
+    if (action === 'show-publish-ui') { appContent.innerHTML = renderPublishUI(); }
+    if (action === 'admin-voltar-painel') { loadDashboard(auth.currentUser); }
     if (action === 'publish-materia') {
         const materia = e.target.dataset.materia;
         await handlePublishMateria(materia, e.target);
@@ -182,22 +170,35 @@ async function handleDeleteQuestion(docId, button) {
     }
 }
 
+
 // --- [ PARTE 9: LÓGICA DE ALUNO - INICIAR SESSÃO DE ESTUDO ] ---
-// (Sem alteração)
+// ===============================================
+// (LÓGICA DE DOWNLOAD TOTALMENTE ALTERADA)
+// ===============================================
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); // Mostra "A carregar..."
 
     try {
+        // 1. Definir o caminho para o ficheiro no Storage
         const filePath = `banco-questoes/${materia.toLowerCase()}.json`;
         const storageRef = ref(storage, filePath);
-        const bytes = await getBytes(storageRef);
-        const jsonString = new TextDecoder().decode(bytes);
-        const data = JSON.parse(jsonString);
+
+        // 2. Pedir ao Firebase o URL de download
+        // (Este passo já verifica a 'allow read' das suas Regras de Storage)
+        const url = await getDownloadURL(storageRef);
+
+        // 3. Usar o 'fetch' do navegador para descarregar o ficheiro
+        const response = await fetch(url);
+        
+        // 4. Converter a resposta em JSON
+        const data = await response.json();
         
         if (!data.questoes || data.questoes.length === 0) {
             appContent.innerHTML = `<p>Nenhuma questão encontrada para ${materia}.</p>`;
             return;
         }
+        
+        // 5. Iniciar o Quiz!
         appContent.innerHTML = renderQuizUI(data.questoes, materia);
 
     } catch (error) {
@@ -206,6 +207,11 @@ async function handleStartStudySession(materia) {
             appContent.innerHTML = `
                 <p class="text-red-400">Erro: O banco de questões para "${materia}" ainda não foi publicado.</p>
                 <p class="text-gray-300 mt-2">Peça ao administrador para publicar esta matéria.</p>
+                <button data-action="admin-voltar-painel" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>
+            `;
+        } else if (error.code === 'storage/unauthorized') {
+             appContent.innerHTML = `
+                <p class="text-red-400">Erro de Permissão: Você não tem autorização para ler este banco de questões.</p>
                 <button data-action="admin-voltar-painel" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>
             `;
         } else {
