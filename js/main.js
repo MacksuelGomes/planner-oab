@@ -1,16 +1,18 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.0 - ARQUITETURA SIMPLIFICADA)
+ * ARQUIVO: js/main.js (VERSÃO 5.1 - LÓGICA DO QUIZ)
  *
  * NOVIDADES:
- * - REMOVE toda a lógica de "Publicar" e "Storage".
- * - Altera o Aluno para ler as questões DIRETAMENTE do FIRESTORE.
- * - Corrige todos os erros de 'Failed to fetch' e 'timeout'.
+ * - Adiciona variáveis de estado do quiz (questão atual, seleção).
+ * - Adiciona lógica de clique para:
+ * 1. Selecionar alternativas.
+ * 2. Confirmar resposta (Método Reverso: mostra certo/errado e comentário).
+ * 3. Ir para a "Próxima Questão".
+ * 4. "Sair" do quiz.
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-// (Removemos o 'storage' - não é mais necessário)
 import { auth, db } from './auth.js'; 
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { 
@@ -20,7 +22,14 @@ import {
 // --- [ PARTE 2: SELETORES DO DOM ] ---
 const appContent = document.getElementById('app-content');
 
-// --- [ PARTE 3: LISTENER DE AUTENTICAÇÃO ] ---
+// --- [ (NOVO) PARTE 3: VARIÁVEIS DE ESTADO DO QUIZ ] ---
+// Vamos guardar o estado do quiz aqui
+let quizQuestoes = [];          // A lista de questões da matéria
+let quizIndexAtual = 0;         // O índice da questão atual (0, 1, 2...)
+let alternativaSelecionada = null; // A letra (A, B, C, D) que o aluno clicou
+let respostaConfirmada = false;  // Se o aluno já confirmou a resposta
+
+// --- [ PARTE 4: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
     if (user) {
         loadDashboard(user);
@@ -29,7 +38,7 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-// --- [ PARTE 4: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
+// --- [ PARTE 5: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
 async function loadDashboard(user) {
     try {
         appContent.innerHTML = renderLoadingState();
@@ -51,10 +60,28 @@ async function loadDashboard(user) {
     }
 }
 
-// --- [ PARTE 5: GESTOR de EVENTOS PRINCIPAL ] ---
+// --- [ PARTE 6: GESTOR DE EVENTOS PRINCIPAL ] ---
 appContent.addEventListener('click', async (e) => {
-    const action = e.target.dataset.action;
     
+    // --- (NOVO) LÓGICA DE CLIQUE NA ALTERNATIVA ---
+    // Procura um clique num elemento com 'data-alternativa'
+    const alternativaEl = e.target.closest('[data-alternativa]');
+    if (alternativaEl && !respostaConfirmada) {
+        alternativaSelecionada = alternativaEl.dataset.alternativa;
+        // Destaca a alternativa selecionada
+        document.querySelectorAll('[data-alternativa]').forEach(el => {
+            el.classList.remove('bg-blue-700', 'border-blue-400');
+            el.classList.add('bg-gray-700');
+        });
+        alternativaEl.classList.add('bg-blue-700', 'border-blue-400');
+        alternativaEl.classList.remove('bg-gray-700');
+        return; // Sai da função
+    }
+
+    // --- LÓGICA DE CLIQUE NOS BOTÕES (data-action) ---
+    const action = e.target.dataset.action;
+    if (!action) return; // Se não for um botão de ação, sai
+
     // --- Ações de Admin ---
     if (action === 'show-create-question-form') { appContent.innerHTML = renderCreateQuestionForm(); }
     if (action === 'show-list-questions') { await renderListQuestionsUI(); }
@@ -69,6 +96,17 @@ appContent.addEventListener('click', async (e) => {
         const materia = e.target.dataset.materia;
         await handleStartStudySession(materia);
     }
+
+    // --- (NOVO) Ações do Quiz ---
+    if (action === 'confirmar-resposta') {
+        handleConfirmarResposta();
+    }
+    if (action === 'proxima-questao') {
+        handleProximaQuestao();
+    }
+    if (action === 'sair-quiz') {
+        loadDashboard(auth.currentUser); // Volta ao dashboard do aluno
+    }
 });
 
 appContent.addEventListener('submit', async (e) => {
@@ -79,9 +117,8 @@ appContent.addEventListener('submit', async (e) => {
 });
 
 
-// --- [ PARTE 6: LÓGICA DE ADMIN - CRIAR QUESTÃO ] ---
-// (Sem alteração)
-async function handleCreateQuestionSubmit(form) {
+// --- [ PARTE 7: LÓGICA DE ADMIN (sem alteração) ] ---
+async function handleCreateQuestionSubmit(form) { /* ...código omitido... */ 
     const statusEl = document.getElementById('form-status');
     statusEl.textContent = 'A guardar...';
     try {
@@ -105,10 +142,7 @@ async function handleCreateQuestionSubmit(form) {
         statusEl.className = 'text-red-400 text-sm mt-4';
     }
 }
-
-// --- [ PARTE 7: LÓGICA DE ADMIN - APAGAR QUESTÃO ] ---
-// (Sem alteração)
-async function handleDeleteQuestion(docId, button) {
+async function handleDeleteQuestion(docId, button) { /* ...código omitido... */ 
     if (!confirm('Tem a certeza que quer apagar esta questão? Esta ação não pode ser desfeita.')) { return; }
     button.textContent = 'A apagar...';
     button.disabled = true;
@@ -116,7 +150,6 @@ async function handleDeleteQuestion(docId, button) {
         await deleteDoc(doc(db, 'questoes', docId));
         const itemParaApagar = document.getElementById(`item-${docId}`);
         if (itemParaApagar) { itemParaApagar.remove(); }
-        // (Aviso de publicar removido, pois não é mais necessário)
     } catch (error) {
         console.error("Erro ao apagar:", error);
         button.textContent = 'Erro ao apagar';
@@ -126,18 +159,11 @@ async function handleDeleteQuestion(docId, button) {
 
 
 // --- [ PARTE 8: LÓGICA DE ALUNO - INICIAR SESSÃO DE ESTUDO ] ---
-// ===============================================
-// (LÓGICA TOTALMENTE ALTERADA - LÊ DO FIRESTORE)
-// ===============================================
 async function handleStartStudySession(materia) {
-    appContent.innerHTML = renderLoadingState(); // Mostra "A carregar..."
-
+    appContent.innerHTML = renderLoadingState(); 
     try {
-        // 1. Criar a consulta ao Firestore
         const questoesRef = collection(db, 'questoes');
         const q = query(questoesRef, where("materia", "==", materia));
-
-        // 2. Executar a consulta
         const querySnapshot = await getDocs(q);
         
         const questoesArray = [];
@@ -146,15 +172,17 @@ async function handleStartStudySession(materia) {
         });
 
         if (questoesArray.length === 0) {
-            appContent.innerHTML = `
-                <p class="text-gray-400">Nenhuma questão de "${materia}" encontrada.</p>
-                <button data-action="admin-voltar-painel" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>
-            `;
+            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão de "${materia}" encontrada.</p><button data-action="admin-voltar-painel" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>`;
             return;
         }
         
-        // 5. Iniciar o Quiz!
-        appContent.innerHTML = renderQuizUI(questoesArray, materia);
+        // (NOVO) Inicializa o estado do quiz
+        quizQuestoes = questoesArray; // Guarda as questões
+        quizIndexAtual = 0;           // Começa na primeira questão
+        alternativaSelecionada = null;
+        respostaConfirmada = false;
+        
+        renderQuiz(); // Desenha o ecrã do quiz
 
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
@@ -162,40 +190,89 @@ async function handleStartStudySession(materia) {
     }
 }
 
+// --- [ (NOVO) PARTE 9: LÓGICA DE ALUNO - LÓGICA DO QUIZ ] ---
+function handleConfirmarResposta() {
+    if (alternativaSelecionada === null) {
+        alert('Por favor, selecione uma alternativa.');
+        return;
+    }
 
-// --- [ PARTE 9: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
+    respostaConfirmada = true;
+    const questaoAtual = quizQuestoes[quizIndexAtual];
+    const correta = questaoAtual.correta;
+
+    // Mostra o feedback (certo/errado)
+    const alternativasEls = document.querySelectorAll('[data-alternativa]');
+    alternativasEls.forEach(el => {
+        const alt = el.dataset.alternativa;
+        
+        if (alt === correta) {
+            // Marca a CORRETA
+            el.classList.add('bg-green-700', 'border-green-500');
+            el.classList.remove('bg-blue-700', 'bg-gray-700');
+        } else if (alt === alternativaSelecionada) {
+            // Marca a ERRADA que o aluno selecionou
+            el.classList.add('bg-red-700', 'border-red-500');
+            el.classList.remove('bg-blue-700', 'bg-gray-700');
+        } else {
+            // Remove o estilo das outras
+            el.classList.add('opacity-50');
+        }
+    });
+
+    // Mostra o comentário (Método Reverso)
+    const comentarioEl = document.getElementById('quiz-comentario');
+    comentarioEl.innerHTML = `
+        <h3 class="text-xl font-bold text-white mb-2">Gabarito & Comentário</h3>
+        <p class="text-gray-300">${questaoAtual.comentario || 'Nenhum comentário disponível.'}</p>
+    `;
+    comentarioEl.classList.remove('hidden');
+
+    // Altera o botão de "Confirmar" para "Próxima"
+    const botaoConfirmar = document.getElementById('quiz-botao-confirmar');
+    botaoConfirmar.textContent = 'Próxima Questão';
+    botaoConfirmar.dataset.action = 'proxima-questao';
+}
+
+function handleProximaQuestao() {
+    quizIndexAtual++; // Avança para a próxima questão
+    
+    if (quizIndexAtual >= quizQuestoes.length) {
+        // Acabou o quiz
+        appContent.innerHTML = `
+            <div class="text-center">
+                <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
+                <p class="text-gray-300 mb-8">Você completou ${quizQuestoes.length} questões de ${quizQuestoes[0].materia}.</p>
+                <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
+                    Voltar ao Dashboard
+                </button>
+            </div>
+        `;
+    } else {
+        // Ainda há questões, renderiza a próxima
+        alternativaSelecionada = null;
+        respostaConfirmada = false;
+        renderQuiz();
+    }
+}
+
+
+// --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
 function renderLoadingState() {
     return `<p class="text-gray-400">A carregar...</p>`;
 }
 
-// ===============================================
-// (PAINEL DE ADMIN ATUALIZADO - REMOVIDO "PUBLICAR")
-// ===============================================
+// (PAINEL DE ADMIN - Sem alteração, removido "Publicar")
 function renderAdminDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     return `
         <h1 class="text-3xl font-bold text-white mb-2">Painel Administrativo</h1>
         <p class="text-lg text-blue-400 mb-8">Bem-vindo, Admin ${userData.nome}!</p>
         <div class="grid md:grid-cols-2 gap-6">
-            
-            <div class="${cardStyle}">
-                <h2 class="text-2xl font-bold text-white mb-4">Criar Questões</h2>
-                <p class="text-gray-300 mb-4">Adicionar questões individuais ao Firestore.</p>
-                <button data-action="show-create-question-form" class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded hover:bg-blue-700 transition">Criar Nova Questão</button>
-            </div>
-            
-            <div class="${cardStyle}">
-                <h2 class="text-2xl font-bold text-white mb-4">Listar / Apagar Questões</h2>
-                <p class="text-gray-300 mb-4">Ver e apagar questões existentes do Firestore.</p>
-                <button data-action="show-list-questions" class="w-full bg-yellow-600 text-white font-semibold py-2 px-4 rounded hover:bg-yellow-700 transition">Listar Questões</button>
-            </div>
-            
-            <div class="${cardStyle}">
-                <h2 class="text-2xl font-bold text-white mb-4">Gestão de Alunos</h2>
-                <p class="text-gray-300 mb-4">Ver alunos, criar acessos e gerir senhas.</p>
-                <a href="https://console.firebase.google.com/project/meu-planner-oab/authentication/users" target="_blank" class="block w-full text-center bg-gray-600 text-white font-semibold py-2 px-4 rounded hover:bg-gray-700 transition">Aceder Painel do Firebase</a>
-            </div>
+            <div class="${cardStyle}"><h2 class="text-2xl font-bold text-white mb-4">Criar Questões</h2><p class="text-gray-300 mb-4">Adicionar questões individuais ao Firestore.</p><button data-action="show-create-question-form" class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded hover:bg-blue-700 transition">Criar Nova Questão</button></div>
+            <div class="${cardStyle}"><h2 class="text-2xl font-bold text-white mb-4">Listar / Apagar Questões</h2><p class="text-gray-300 mb-4">Ver e apagar questões existentes do Firestore.</p><button data-action="show-list-questions" class="w-full bg-yellow-600 text-white font-semibold py-2 px-4 rounded hover:bg-yellow-700 transition">Listar Questões</button></div>
+            <div class="${cardStyle}"><h2 class="text-2xl font-bold text-white mb-4">Gestão de Alunos</h2><p class="text-gray-300 mb-4">Ver alunos, criar acessos e gerir senhas.</p><a href="https://console.firebase.google.com/project/meu-planner-oab/authentication/users" target="_blank" class="block w-full text-center bg-gray-600 text-white font-semibold py-2 px-4 rounded hover:bg-gray-700 transition">Aceder Painel do Firebase</a></div>
         </div>
     `;
 }
@@ -204,7 +281,6 @@ function renderAdminDashboard(userData) {
 function renderStudentDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
-
     return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
         <div class="grid md:grid-cols-3 gap-6 mb-8">
@@ -217,8 +293,7 @@ function renderStudentDashboard(userData) {
             <p class="text-gray-300 mb-6">Selecione uma matéria para iniciar:</p>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 ${materias.map(materia => `
-                    <button data-action="start-study-session" data-materia="${materia}"
-                            class="p-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-300 capitalize">
+                    <button data-action="start-study-session" data-materia="${materia}" class="p-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-300 capitalize">
                         ${materia.replace('_', ' ')}
                     </button>
                 `).join('')}
@@ -228,7 +303,7 @@ function renderStudentDashboard(userData) {
 }
 
 // (FORMULÁRIO DE QUESTÃO - Sem alteração)
-function renderCreateQuestionForm() {
+function renderCreateQuestionForm() { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
     const labelStyle = "block text-sm font-medium text-gray-300";
@@ -253,9 +328,8 @@ function renderCreateQuestionForm() {
     `;
 }
 
-// (UI DE PUBLICAÇÃO - REMOVIDA)
 // (UI DE APAGAR - Sem alteração)
-async function renderListQuestionsUI() {
+async function renderListQuestionsUI() { /* ...código omitido... */ 
     appContent.innerHTML = renderLoadingState(); 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     let listHtml = "";
@@ -292,19 +366,26 @@ async function renderListQuestionsUI() {
     }
 }
 
-// (HTML DO QUIZ - Sem alteração)
-function renderQuizUI(questoes, materia) {
-    const questaoAtual = questoes[0];
+// --- [ (ATUALIZADO) PARTE 11: HTML DO QUIZ ] ---
+// Esta função agora é chamada por renderQuiz()
+function renderQuiz() {
+    const questaoAtual = quizQuestoes[quizIndexAtual];
+    const materia = questaoAtual.materia;
+
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
-    const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-blue-600 cursor-pointer transition";
-    return `
+    // (NOVO) Estilo base das alternativas
+    const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
+
+    appContent.innerHTML = `
         <h2 class="text-2xl font-bold text-white mb-2 capitalize">Matéria: ${materia.replace('_', ' ')}</h2>
-        <p class="text-gray-400 mb-6">Questão 1 de ${questoes.length}</p>
+        <p class="text-gray-400 mb-6">Questão ${quizIndexAtual + 1} de ${quizQuestoes.length}</p>
+        
         <div class="${cardStyle}">
             <div class="mb-6">
                 <p class="text-gray-400 text-sm mb-2">Enunciado da Questão</p>
                 <p class="text-white text-lg">${questaoAtual.enunciado}</p>
             </div>
+
             <div class="space-y-4">
                 <div class="${alternativaStyle}" data-alternativa="A"><span class="font-bold mr-2">A)</span> ${questaoAtual.alternativas.A}</div>
                 <div class="${alternativaStyle}" data-alternativa="B"><span class="font-bold mr-2">B)</span> ${questaoAtual.alternativas.B}</div>
@@ -312,9 +393,17 @@ function renderQuizUI(questoes, materia) {
                 <div class="${alternativaStyle}" data-alternativa="D"><span class="font-bold mr-2">D)</span> ${questaoAtual.alternativas.D}</div>
             </div>
         </div>
+
+        <div id="quiz-comentario" class="${cardStyle} mt-6 hidden">
+            </div>
+
         <div class="mt-6 flex justify-between">
-            <button class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">Sair</button>
-            <button class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
+            <button data-action="sair-quiz" class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">
+                Sair
+            </button>
+            <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
+                Confirmar Resposta
+            </button>
         </div>
     `;
 }
