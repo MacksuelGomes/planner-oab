@@ -1,9 +1,10 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 3.2)
+ * ARQUIVO: js/main.js (VERSÃO 3.3)
  * O CÉREBRO DO APLICATIVO (DASHBOARD E LÓGICA)
  *
  * NOVIDADES:
+ * - CORRIGE o erro de sintaxe (vírgula) no 'catch'
  * - Adiciona a função "Listar/Apagar Questões" para o Admin.
  * ========================================================
  */
@@ -47,7 +48,10 @@ async function loadDashboard(user) {
         } else {
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
         }
-    } catch (error) {,
+    // ===============================================
+    // A CORREÇÃO ESTÁ AQUI (A VÍRGULA FOI REMOVIDA)
+    // ===============================================
+    } catch (error) { 
         console.error("Erro ao carregar dashboard:", error);
         appContent.innerHTML = `<p>Ocorreu um erro ao carregar seus dados.</p>`;
     }
@@ -164,7 +168,7 @@ async function handlePublishMateria(materia, button) {
     }
 }
 
-// --- [ (NOVO) PARTE 8: LÓGICA DE ADMIN - APAGAR QUESTÃO ] ---
+// --- [ PARTE 8: LÓGICA DE ADMIN - APAGAR QUESTÃO ] ---
 async function handleDeleteQuestion(docId, button) {
     if (!confirm('Tem a certeza que quer apagar esta questão? Esta ação não pode ser desfeita.')) {
         return;
