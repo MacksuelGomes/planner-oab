@@ -1,30 +1,30 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js
+ * ARQUIVO: js/main.js (VERSÃO 3.0)
  * O CÉREBRO DO APLICATIVO (DASHBOARD E LÓGICA)
  *
- * NOVA VERSÃO: Agora com Gestor de Conteúdo (Upload)
+ * NOVIDADES:
+ * - Implementa a Arquitetura Híbrida (Firestore + Storage)
+ * - Adiciona o formulário "Criar Questão" para o Admin.
+ * - Adiciona a lógica "Publicar Banco de Questões" para o Admin.
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-// Importa os serviços (auth, db) E o novo (storage)
+// Importa os serviços (auth, db) e o novo (storage) do auth.js
 import { auth, db, storage } from './auth.js'; 
 
 // Importa funções do Firebase que vamos usar aqui
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-// --- NOVO: IMPORTAR FUNÇÕES DO STORAGE ---
 import { 
-    ref, 
-    uploadBytesResumable, 
-    getDownloadURL 
+    doc, getDoc, collection, addDoc, getDocs, query, where 
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { 
+    ref, uploadString 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
-
 
 // --- [ PARTE 2: SELETORES DO DOM ] ---
 const appContent = document.getElementById('app-content');
-let currentUserData = null; // Vamos guardar os dados do utilizador aqui
 
 // --- [ PARTE 3: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -32,7 +32,6 @@ onAuthStateChanged(auth, (user) => {
         loadDashboard(user);
     } else {
         appContent.innerHTML = '';
-        currentUserData = null;
     }
 });
 
@@ -40,17 +39,15 @@ onAuthStateChanged(auth, (user) => {
 async function loadDashboard(user) {
     try {
         appContent.innerHTML = renderLoadingState();
-        
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
 
         if (userDoc.exists()) {
-            currentUserData = userDoc.data(); // Guarda os dados do utilizador
-            
-            if (currentUserData.isAdmin === true) {
-                appContent.innerHTML = renderAdminDashboard(currentUserData);
+            const userData = userDoc.data();
+            if (userData.isAdmin === true) {
+                appContent.innerHTML = renderAdminDashboard(userData);
             } else {
-                appContent.innerHTML = renderStudentDashboard(currentUserData);
+                appContent.innerHTML = renderStudentDashboard(userData);
             }
         } else {
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
@@ -61,150 +58,173 @@ async function loadDashboard(user) {
     }
 }
 
-// --- [ NOVO: PARTE 5 - GESTORES DE CLIQUE DO DASHBOARD ] ---
-// Usamos delegação de eventos no contentor principal
-appContent.addEventListener('click', (e) => {
-    // Se clicar no botão de Gerir Questões (Admin)
-    if (e.target.id === 'admin-gerir-questoes') {
-        appContent.innerHTML = renderAdminUpload(currentUserData);
+// --- [ PARTE 5: GESTOR DE EVENTOS PRINCIPAL ] ---
+// Usamos um único gestor de eventos no 'appContent' para
+// gerir todos os cliques e submissões de formulários
+// que acontecem dentro dele.
+appContent.addEventListener('click', async (e) => {
+    // Procura por um botão com 'data-action'
+    const action = e.target.dataset.action;
+    
+    if (action === 'show-create-question-form') {
+        appContent.innerHTML = renderCreateQuestionForm();
     }
     
-    // Se clicar no botão "Voltar" (do ecrã de Upload)
-    if (e.target.id === 'admin-voltar-dash') {
-        appContent.innerHTML = renderAdminDashboard(currentUserData);
+    if (action === 'show-publish-ui') {
+        appContent.innerHTML = renderPublishUI();
     }
     
-    // Se clicar no botão "Subir Ficheiro"
-    if (e.target.id === 'admin-submit-upload') {
-        handleFileUpload();
+    if (action === 'admin-voltar-painel') {
+        loadDashboard(auth.currentUser); // Recarrega o dashboard
+    }
+    
+    if (action === 'publish-materia') {
+        const materia = e.target.dataset.materia;
+        await handlePublishMateria(materia, e.target);
     }
 });
 
-// --- [ NOVO: PARTE 6 - LÓGICA DE UPLOAD ] ---
-function handleFileUpload() {
-    const fileInput = document.getElementById('admin-file-input');
-    const file = fileInput.files[0];
-    const statusEl = document.getElementById('upload-status');
-    const progressEl = document.getElementById('upload-progress');
-
-    if (!file) {
-        statusEl.textContent = "Por favor, selecione um ficheiro .json.";
-        statusEl.className = "text-red-400";
-        return;
-    }
-
-    // Só permite ficheiros .json
-    if (file.type !== "application/json") {
-        statusEl.textContent = "Erro: O ficheiro tem de ser .json.";
-        statusEl.className = "text-red-400";
-        return;
-    }
-
-    // 1. Criar a referência no Storage
-    // Ex: banco-questoes/etica.json
-    const storageRef = ref(storage, `banco-questoes/${file.name}`);
+appContent.addEventListener('submit', async (e) => {
+    e.preventDefault(); // Impede o recarregamento da página
     
-    // 2. Iniciar o upload
-    const uploadTask = uploadBytesResumable(storageRef, file);
-    
-    statusEl.textContent = "A subir...";
-    statusEl.className = "text-blue-400";
-    progressEl.style.width = "0%";
-    progressEl.classList.remove('hidden');
+    // Gestor do formulário de criação de questão
+    if (e.target.id === 'form-create-question') {
+        await handleCreateQuestionSubmit(e.target);
+    }
+});
 
-    // 3. Monitorizar o progresso
-    uploadTask.on('state_changed', 
-        (snapshot) => {
-            // Progresso
-            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            progressEl.style.width = progress + "%";
-        }, 
-        (error) => {
-            // Erro
-            console.error("Erro no upload:", error);
-            statusEl.textContent = "Erro no upload. (Verifique as Regras do Storage!)";
-            statusEl.className = "text-red-400";
-        }, 
-        () => {
-            // Sucesso
-            statusEl.textContent = `Ficheiro "${file.name}" subido com sucesso!`;
-            statusEl.className = "text-green-400";
-            fileInput.value = ''; // Limpa o input
-            
-            // Opcional: Mostrar o link de download (para teste)
-            getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
-                console.log('Ficheiro disponível em:', downloadURL);
-            });
+
+// --- [ PARTE 6: LÓGICA DE ADMIN - CRIAR QUESTÃO ] ---
+async function handleCreateQuestionSubmit(form) {
+    const statusEl = document.getElementById('form-status');
+    statusEl.textContent = 'A guardar...';
+    
+    try {
+        // 1. Pega os dados do formulário
+        const formData = new FormData(form);
+        const questaoData = {
+            materia: formData.get('materia'),
+            enunciado: formData.get('enunciado'),
+            alternativas: {
+                A: formData.get('alt_a'),
+                B: formData.get('alt_b'),
+                C: formData.get('alt_c'),
+                D: formData.get('alt_d'),
+            },
+            correta: formData.get('correta'),
+            comentario: formData.get('comentario'),
+            // (Opcional) Adiciona um ID único, ex: ETI-001
+            id: `${formData.get('materia').toUpperCase()}-${Date.now().toString().slice(-5)}`
+        };
+
+        // 2. Salva o novo documento na coleção "questoes"
+        const questoesRef = collection(db, 'questoes');
+        await addDoc(questoesRef, questaoData);
+
+        // 3. Limpa o formulário e dá feedback
+        statusEl.textContent = 'Questão guardada com sucesso!';
+        statusEl.className = 'text-green-400 text-sm mt-4';
+        form.reset();
+        
+    } catch (error) {
+        console.error("Erro ao guardar questão:", error);
+        statusEl.textContent = `Erro ao guardar: ${error.message}`;
+        statusEl.className = 'text-red-400 text-sm mt-4';
+    }
+}
+
+// --- [ PARTE 7: LÓGICA DE ADMIN - PUBLICAR QUESTÕES ] ---
+async function handlePublishMateria(materia, button) {
+    button.textContent = 'A publicar...';
+    button.disabled = true;
+    
+    const statusEl = document.getElementById(`status-${materia}`);
+    statusEl.textContent = 'A procurar questões no Firestore...';
+
+    try {
+        // 1. Buscar todas as questões daquela matéria no Firestore
+        const questoesRef = collection(db, 'questoes');
+        const q = query(questoesRef, where("materia", "==", materia));
+        
+        const querySnapshot = await getDocs(q);
+        
+        const questoesArray = [];
+        querySnapshot.forEach((doc) => {
+            questoesArray.push(doc.data());
+        });
+
+        if (questoesArray.length === 0) {
+            statusEl.textContent = 'Nenhuma questão encontrada para esta matéria.';
+            button.textContent = `Publicar ${materia}`;
+            button.disabled = false;
+            return;
         }
-    );
+
+        // 2. Compilar o ficheiro JSON
+        statusEl.textContent = `A compilar ${questoesArray.length} questões...`;
+        const jsonData = {
+            materia: materia,
+            total_questoes: questoesArray.length,
+            questoes: questoesArray
+        };
+        const jsonString = JSON.stringify(jsonData);
+
+        // 3. Definir o caminho no Storage (ex: banco-questoes/etica.json)
+        const storageRef = ref(storage, `banco-questoes/${materia.toLowerCase()}.json`);
+
+        // 4. Fazer o upload do ficheiro JSON
+        statusEl.textContent = 'A fazer upload para o Storage...';
+        await uploadString(storageRef, jsonString, 'data_url');
+        
+        statusEl.textContent = `Sucesso! "${materia}.json" publicado com ${questoesArray.length} questões.`;
+        statusEl.className = 'text-green-400 text-sm';
+        button.textContent = `Publicar ${materia}`;
+        button.disabled = false;
+
+    } catch (error) {
+        console.error("Erro ao publicar:", error);
+        statusEl.textContent = `Erro: ${error.message}`;
+        statusEl.className = 'text-red-400 text-sm';
+        button.textContent = `Publicar ${materia}`;
+        button.disabled = false;
+    }
 }
 
 
-// --- [ PARTE 7: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
-const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+// --- [ PARTE 8: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
 function renderLoadingState() {
     return `<p class="text-gray-400">A carregar os seus dados...</p>`;
 }
 
-// --- NOVO: ECRÃ DE UPLOAD DO ADMIN ---
-function renderAdminUpload(userData) {
-    return `
-        <button id="admin-voltar-dash" 
-                class="mb-4 text-blue-400 hover:text-blue-300">
-            &larr; Voltar ao Painel
-        </button>
-    
-        <h1 class="text-3xl font-bold text-white mb-6">
-            Gestor do Banco de Questões
-        </h1>
-        
-        <div class="${cardStyle}">
-            <h2 class="text-2xl font-bold text-white mb-4">
-                Subir novo ficheiro de questões (.json)
-            </h2>
-            
-            <p class="text-gray-300 mb-4">
-                Selecione o ficheiro .json (ex: "etica.json") do seu computador. 
-                Se subir um ficheiro com um nome que já existe, ele será 
-                <strong class="text-yellow-400">sobrescrito</strong>.
-            </p>
-            
-            <input type="file" id="admin-file-input" 
-                   class="w-full text-gray-300 file:mr-4 file:py-2 file:px-4
-                          file:rounded-md file:border-0 file:text-sm file:font-semibold
-                          file:bg-blue-600 file:text-white hover:file:bg-blue-700"
-                   accept=".json">
-            
-            <div class="w-full bg-gray-700 rounded-full h-2.5 mt-4 hidden">
-                <div id="upload-progress" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
-            </div>
-            
-            <p id="upload-status" class="text-center mt-4"></p>
-            
-            <button id="admin-submit-upload" 
-                    class="w-full bg-green-600 text-white font-semibold py-2 px-4 rounded hover:bg-green-700 transition mt-6">
-                Subir Ficheiro
-            </button>
-        </div>
-    `;
-}
-
-// --- PAINEL DO ADMINISTRADOR ---
+// (PAINEL DE ADMIN ATUALIZADO)
 function renderAdminDashboard(userData) {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    
     return `
         <h1 class="text-3xl font-bold text-white mb-2">Painel Administrativo</h1>
         <p class="text-lg text-blue-400 mb-8">Bem-vindo, Admin ${userData.nome}!</p>
-        
+
         <div class="grid md:grid-cols-2 gap-6">
+            
             <div class="${cardStyle}">
-                <h2 class="text-2xl font-bold text-white mb-4">Gestão de Conteúdo</h2>
-                <p class="text-gray-300 mb-4">Adicionar, editar ou remover questões do banco de dados.</p>
-                <button id="admin-gerir-questoes" 
+                <h2 class="text-2xl font-bold text-white mb-4">Gestão de Questões</h2>
+                <p class="text-gray-300 mb-4">Adicionar ou editar questões individuais no Firestore.</p>
+                <button data-action="show-create-question-form" 
                         class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded hover:bg-blue-700 transition">
-                    Gerir Banco de Questões
+                    Criar Nova Questão
                 </button>
             </div>
+            
+            <div class="${cardStyle}">
+                <h2 class="text-2xl font-bold text-white mb-4">Publicar Alterações</h2>
+                <p class="text-gray-300 mb-4">Enviar as questões do Firestore para o Storage (para os alunos).</p>
+                <button data-action="show-publish-ui" 
+                        class="w-full bg-green-600 text-white font-semibold py-2 px-4 rounded hover:bg-green-700 transition">
+                    Publicar Banco de Questões
+                </button>
+            </div>
+            
             <div class="${cardStyle}">
                 <h2 class="text-2xl font-bold text-white mb-4">Gestão de Alunos</h2>
                 <p class="text-gray-300 mb-4">Ver alunos, criar acessos e gerir senhas.</p>
@@ -218,31 +238,124 @@ function renderAdminDashboard(userData) {
     `;
 }
 
-// --- PAINEL DO ALUNO ---
+// (PAINEL DE ALUNO - Sem alteração)
 function renderStudentDashboard(userData) {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    
     return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
-        
         <div class="grid md:grid-cols-3 gap-6 mb-8">
-            <div class="${cardStyle}">
-                <h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3>
-                <p class="text-3xl font-bold text-white mt-2">0</p>
-            </div>
-            <div class="${cardStyle}">
-                <h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3>
-                <p class="text-3xl font-bold text-white mt-2">0%</p>
-            </div>
-            <div class="${cardStyle}">
-                <h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3>
-                <p class="text-3xl font-bold text-white mt-2">0</p>
-            </div>
+            <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
+            <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3><p class="text-3xl font-bold text-white mt-2">0%</p></div>
+            <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
         </div>
-        
         <div class="${cardStyle}">
             <h2 class="text-2xl font-bold text-white mb-4">Ciclo de Estudos (Método Reverso)</h2>
-            <p class="text-gray-300">
-                (Em breve) Aqui é onde a lógica principal do seu planner será implementada.
+            <p class="text-gray-300">(Em breve) Aqui é onde a lógica principal do seu planner será implementada.</p>
+        </div>
+    `;
+}
+
+// (NOVO - HTML DO FORMULÁRIO DE QUESTÃO)
+function renderCreateQuestionForm() {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
+    const labelStyle = "block text-sm font-medium text-gray-300";
+
+    return `
+        <button data-action="admin-voltar-painel" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Painel</button>
+        <div class="${cardStyle}">
+            <h2 class="text-2xl font-bold text-white mb-6">Criar Nova Questão</h2>
+            
+            <form id="form-create-question" class="space-y-4">
+                
+                <div>
+                    <label for="materia" class="${labelStyle}">Matéria (ex: etica, civil, penal)</label>
+                    <input type_ "text" id="materia" name="materia" required class="${inputStyle}">
+                </div>
+                
+                <div>
+                    <label for="enunciado" class="${labelStyle}">Enunciado da Questão</label>
+                    <textarea id="enunciado" name="enunciado" rows="3" required class="${inputStyle}"></textarea>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="alt_a" class="${labelStyle}">Alternativa A</label>
+                        <input type="text" id="alt_a" name="alt_a" required class="${inputStyle}">
+                    </div>
+                    <div>
+                        <label for="alt_b" class="${labelStyle}">Alternativa B</label>
+                        <input type="text" id="alt_b" name="alt_b" required class="${inputStyle}">
+                    </div>
+                    <div>
+                        <label for="alt_c" class="${labelStyle}">Alternativa C</label>
+                        <input type="text" id="alt_c" name="alt_c" required class="${inputStyle}">
+                    </div>
+                    <div>
+                        <label for="alt_d" class="${labelStyle}">Alternativa D</label>
+                        <input type="text" id="alt_d" name="alt_d" required class="${inputStyle}">
+                    </div>
+                </div>
+
+                <div>
+                    <label for="correta" class="${labelStyle}">Alternativa Correta</label>
+                    <select id="correta" name="correta" required class="${inputStyle}">
+                        <option value="">Selecione...</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                        <option value="D">D</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label for="comentario" class="${labelStyle}">Comentário (Fundamentação)</label>
+                    <textarea id="comentario" name="comentario" rows="3" class="${inputStyle}"></textarea>
+                </div>
+                
+                <div>
+                    <button type="submit" 
+                            class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 transition duration-300">
+                        Guardar Questão
+                    </button>
+                </div>
+                
+                <div id="form-status" class="text-sm text-center mt-4"></div>
+            
+            </form>
+        </div>
+    `;
+}
+
+// (NOVO - HTML DA UI DE PUBLICAÇÃO)
+function renderPublishUI() {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    
+    // Lista de matérias. Adicione/remova conforme necessário.
+    const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
+
+    return `
+        <button data-action="admin-voltar-painel" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Painel</button>
+        <div class="${cardStyle}">
+            <h2 class="text-2xl font-bold text-white mb-6">Publicar Banco de Questões</h2>
+            <p class="text-gray-300 mb-6">
+                Isto irá ler todas as questões do Firestore e compilar os ficheiros JSON
+                para os alunos no Storage.
             </p>
+            
+            <div class="space-y-4">
+                ${materias.map(materia => `
+                    <div class="p-4 bg-gray-900 rounded-lg flex items-center justify-between">
+                        <span class="text-lg text-white font-medium">${materia}.json</span>
+                        <button data-action="publish-materia" data-materia="${materia}"
+                                class="bg-green-600 text-white font-semibold py-1 px-3 rounded hover:bg-green-700 transition text-sm">
+                            Publicar ${materia}
+                        </button>
+                    </div>
+                    <div id="status-${materia}" class="text-sm text-gray-400 ml-1"></div>
+                `).join('')}
+            </div>
         </div>
     `;
 }
