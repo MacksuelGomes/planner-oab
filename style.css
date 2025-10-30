@@ -1,0 +1,28 @@
+/*
+  Este é o css/style.css
+  Ele controla o design do app.html
+*/
+
+/* Estilo do Loader (A "bolinha a rodar")
+  Isto é o que o utilizador vê no ecrã de carregamento.
+*/
+.loader {
+    width: 48px;
+    height: 48px;
+    border: 5px solid #FFF; /* Cor principal (Branco) */
+    border-bottom-color: #3B82F6; /* Cor do detalhe (Azul do Tailwind) */
+    border-radius: 50%;
+    display: inline-block;
+    box-sizing: border-box;
+    animation: rotation 1s linear infinite;
+}
+
+/* Animação de rotação */
+@keyframes rotation {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
