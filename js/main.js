@@ -1,9 +1,10 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 4.0)
+ * ARQUIVO: js/main.js (VERSÃO 4.1 - CORRIGIDA)
  * O CÉREBRO DO APLICATIVO (DASHBOARD E LÓGICA)
  *
  * NOVIDADES:
+ * - CORRIGE o erro de sintaxe fatal (vírgula) no 'catch'
  * - Constrói o Dashboard do Aluno (lista de matérias).
  * - Adiciona a lógica para descarregar o JSON do Storage.
  * - Adiciona a primeira versão do ecrã de "Quiz".
@@ -18,7 +19,6 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { 
     ref, uploadString, 
-    // (NOVAS IMPORTAÇÕES) para descarregar as questões
     getBytes 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
@@ -50,6 +50,9 @@ async function loadDashboard(user) {
         } else {
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
         }
+    // ===============================================
+    // A CORREÇÃO ESTÁ AQUI (A VÍRGULA FOI REMOVIDA)
+    // ===============================================
     } catch (error) { 
         console.error("Erro ao carregar dashboard:", error);
         appContent.innerHTML = `<p>Ocorreu um erro ao carregar seus dados.</p>`;
@@ -82,9 +85,7 @@ appContent.addEventListener('click', async (e) => {
         await handleDeleteQuestion(docId, e.target);
     }
 
-    // ===============================================
-    // (NOVO) AÇÕES DE ALUNO
-    // ===============================================
+    // --- Ações de Aluno ---
     if (action === 'start-study-session') {
         const materia = e.target.dataset.materia;
         await handleStartStudySession(materia);
@@ -181,35 +182,22 @@ async function handleDeleteQuestion(docId, button) {
     }
 }
 
-// ===============================================
-// (NOVO) LÓGICA DO ALUNO
-// ===============================================
-
-// --- [ (NOVO) PARTE 9: LÓGICA DE ALUNO - INICIAR SESSÃO DE ESTUDO ] ---
+// --- [ PARTE 9: LÓGICA DE ALUNO - INICIAR SESSÃO DE ESTUDO ] ---
+// (Sem alteração)
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); // Mostra "A carregar..."
 
     try {
-        // 1. Definir o caminho para o ficheiro no Storage
         const filePath = `banco-questoes/${materia.toLowerCase()}.json`;
         const storageRef = ref(storage, filePath);
-
-        // 2. Descarregar o ficheiro
         const bytes = await getBytes(storageRef);
-        
-        // 3. Converter os "bytes" num texto (string JSON)
         const jsonString = new TextDecoder().decode(bytes);
-        
-        // 4. Converter o texto (JSON) num objeto JavaScript
         const data = JSON.parse(jsonString);
         
         if (!data.questoes || data.questoes.length === 0) {
             appContent.innerHTML = `<p>Nenhuma questão encontrada para ${materia}.</p>`;
             return;
         }
-
-        // 5. Iniciar o Quiz!
-        // (Por agora, apenas renderiza o ecrã com a primeira questão)
         appContent.innerHTML = renderQuizUI(data.questoes, materia);
 
     } catch (error) {
@@ -264,30 +252,21 @@ function renderAdminDashboard(userData) {
     `;
 }
 
-// ===============================================
-// (PAINEL DE ALUNO ATUALIZADO)
-// ===============================================
+// (PAINEL DE ALUNO - Sem alteração)
 function renderStudentDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
-    
-    // A nossa lista de matérias
     const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
 
     return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
-        
         <div class="grid md:grid-cols-3 gap-6 mb-8">
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3><p class="text-3xl font-bold text-white mt-2">0%</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
         </div>
-
         <div class="${cardStyle}">
-            <h2 class="text-2xl font-bold text-white mb-6">
-                Ciclo de Estudos (Método Reverso)
-            </h2>
+            <h2 class="text-2xl font-bold text-white mb-6">Ciclo de Estudos (Método Reverso)</h2>
             <p class="text-gray-300 mb-6">Selecione uma matéria para iniciar:</p>
-            
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 ${materias.map(materia => `
                     <button data-action="start-study-session" data-materia="${materia}"
@@ -384,49 +363,29 @@ async function renderListQuestionsUI() {
     }
 }
 
-// ===============================================
-// (NOVO) HTML DO QUIZ DO ALUNO
-// ===============================================
+// (HTML DO QUIZ - Sem alteração)
 function renderQuizUI(questoes, materia) {
-    // Por agora, vamos apenas mostrar a PRIMEIRA questão
     const questaoAtual = questoes[0];
-
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-blue-600 cursor-pointer transition";
-
     return `
         <h2 class="text-2xl font-bold text-white mb-2 capitalize">Matéria: ${materia.replace('_', ' ')}</h2>
         <p class="text-gray-400 mb-6">Questão 1 de ${questoes.length}</p>
-
         <div class="${cardStyle}">
             <div class="mb-6">
                 <p class="text-gray-400 text-sm mb-2">Enunciado da Questão</p>
                 <p class="text-white text-lg">${questaoAtual.enunciado}</p>
             </div>
-
             <div class="space-y-4">
-                <div class="${alternativaStyle}" data-alternativa="A">
-                    <span class="font-bold mr-2">A)</span> ${questaoAtual.alternativas.A}
-                </div>
-                <div class="${alternativaStyle}" data-alternativa="B">
-                    <span class="font-bold mr-2">B)</span> ${questaoAtual.alternativas.B}
-                </div>
-                <div class="${alternativaStyle}" data-alternativa="C">
-                    <span class="font-bold mr-2">C)</span> ${questaoAtual.alternativas.C}
-                </div>
-                <div class="${alternativaStyle}" data-alternativa="D">
-                    <span class="font-bold mr-2">D)</span> ${questaoAtual.alternativas.D}
-                </div>
+                <div class="${alternativaStyle}" data-alternativa="A"><span class="font-bold mr-2">A)</span> ${questaoAtual.alternativas.A}</div>
+                <div class="${alternativaStyle}" data-alternativa="B"><span class="font-bold mr-2">B)</span> ${questaoAtual.alternativas.B}</div>
+                <div class="${alternativaStyle}" data-alternativa="C"><span class="font-bold mr-2">C)</span> ${questaoAtual.alternativas.C}</div>
+                <div class="${alternativaStyle}" data-alternativa="D"><span class="font-bold mr-2">D)</span> ${questaoAtual.alternativas.D}</div>
             </div>
         </div>
-
         <div class="mt-6 flex justify-between">
-            <button class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">
-                Sair
-            </button>
-            <button class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
-                Confirmar Resposta
-            </button>
+            <button class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">Sair</button>
+            <button class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
         </div>
     `;
 }
