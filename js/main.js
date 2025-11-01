@@ -1,11 +1,11 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.5 - CORREÇÃO ÁREA DE CLIQUE)
+ * ARQUIVO: js/main.js (VERSÃO 5.6 - CORREÇÃO DO BOTÃO "SAIR")
  *
  * NOVIDADES:
- * - Corrige o bug em que os cartões (Planner/Estudo Livre)
- * não eram clicáveis no texto, apenas no padding.
- * - Altera o gestor de eventos de 'e.target' para 'e.target.closest'.
+ * - O botão "Sair" do quiz agora volta para o ecrã correto
+ * (Menu Principal ou Estudo Livre), com base no contexto.
+ * - Adiciona a variável de estado 'quizReturnPath'.
  * ========================================================
  */
 
@@ -33,6 +33,8 @@ let quizIndexAtual = 0;
 let alternativaSelecionada = null; 
 let respostaConfirmada = false;  
 let metaQuestoesDoDia = 20; 
+// (NOVA VARIÁVEL) Controla para onde o botão "Sair" do quiz deve voltar
+let quizReturnPath = 'menu'; // 'menu' ou 'free-study'
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -65,12 +67,10 @@ async function loadDashboard(user) {
     }
 }
 
-// ===============================================
-// --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL (CORRIGIDO) ] ---
-// ===============================================
+// --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL (ATUALIZADO) ] ---
 appContent.addEventListener('click', async (e) => {
     
-    // LÓGICA DE CLIQUE NA ALTERNATIVA (Já estava correta)
+    // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         alternativaSelecionada = alternativaEl.dataset.alternativa;
@@ -83,15 +83,10 @@ appContent.addEventListener('click', async (e) => {
         return; 
     }
 
-    // ===============================================
-    // (A CORREÇÃO ESTÁ AQUI)
-    // Em vez de 'e.target', usamos 'e.target.closest'
-    // para encontrar o botão de ação mais próximo.
-    // ===============================================
     const actionButton = e.target.closest('[data-action]');
-    if (!actionButton) return; // Se não clicou em nada com data-action, sai
+    if (!actionButton) return; 
 
-    const action = actionButton.dataset.action; // Pega a ação do elemento encontrado
+    const action = actionButton.dataset.action; 
     
     // --- Ações de Admin ---
     if (action === 'show-create-question-form') { appContent.innerHTML = renderCreateQuestionForm(); }
@@ -104,6 +99,8 @@ appContent.addEventListener('click', async (e) => {
 
     // --- Ações de Aluno ---
     if (action === 'show-guided-planner') {
+        // (ATUALIZADO) Define o caminho de retorno
+        quizReturnPath = 'menu'; 
         const user = auth.currentUser;
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         const userData = userDoc.data();
@@ -114,6 +111,8 @@ appContent.addEventListener('click', async (e) => {
         }
     }
     if (action === 'show-free-study') {
+        // (ATUALIZADO) Define o caminho de retorno
+        quizReturnPath = 'free-study'; 
         appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
     }
     if (action === 'student-voltar-menu') {
@@ -127,7 +126,19 @@ appContent.addEventListener('click', async (e) => {
     // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { handleConfirmarResposta(); }
     if (action === 'proxima-questao') { await handleProximaQuestao(); }
-    if (action === 'sair-quiz') { loadDashboard(auth.currentUser); }
+    
+    // ===============================================
+    // (LÓGICA DO "SAIR" ATUALIZADA)
+    // ===============================================
+    if (action === 'sair-quiz') {
+        if (quizReturnPath === 'free-study') {
+            // Volta para o "Estudo Livre"
+            appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
+        } else {
+            // Volta para o "Menu Principal" (padrão)
+            loadDashboard(auth.currentUser); 
+        }
+    }
 });
 
 appContent.addEventListener('submit', async (e) => {
@@ -224,7 +235,8 @@ async function handleStartStudySession(materia) { /* ...código omitido... */
         }
         
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-        metaQuestoesDoDia = userDoc.data().metaDiaria || 20;
+        // (ATUALIZADO) Verifica se a meta existe antes de a ler
+        metaQuestoesDoDia = userDoc.data()?.metaDiaria || questoesArray.length; // Usa a meta, ou o total de questões
 
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;           
@@ -241,29 +253,40 @@ async function handleStartStudySession(materia) { /* ...código omitido... */
 async function handleProximaQuestao() { /* ...código omitido... */ 
     quizIndexAtual++; 
     
-    if (quizIndexAtual >= quizQuestoes.length || quizIndexAtual >= metaQuestoesDoDia) {
+    // (ATUALIZADO) Usa a variável metaQuestoesDoDia correta
+    if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'guided' && quizIndexAtual >= metaQuestoesDoDia) ) {
+        
+        // Define o texto final
+        let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
+        if (quizReturnPath === 'guided') {
+            textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões de ${quizQuestoes[0].materia}!`;
+        }
+
         appContent.innerHTML = `
             <div class="text-center">
                 <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
-                <p class="text-gray-300 mb-8">Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.</p>
+                <p class="text-gray-300 mb-8">${textoFinal}</p>
                 <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
-                    Voltar ao Menu Principal
+                    Voltar
                 </button>
             </div>
         `;
         
-        try {
-            const user = auth.currentUser;
-            const userDocRef = doc(db, 'users', user.uid);
-            const userDoc = await getDoc(userDocRef);
-            const dadosAtuais = userDoc.data();
-            let novoIndex = (dadosAtuais.cicloIndex || 0) + 1;
-            if (novoIndex >= CICLO_DE_ESTUDOS.length) {
-                novoIndex = 0;
+        // Só atualiza o ciclo SE estiver no modo guiado
+        if (quizReturnPath === 'guided') {
+            try {
+                const user = auth.currentUser;
+                const userDocRef = doc(db, 'users', user.uid);
+                const userDoc = await getDoc(userDocRef);
+                const dadosAtuais = userDoc.data();
+                let novoIndex = (dadosAtuais.cicloIndex || 0) + 1;
+                if (novoIndex >= CICLO_DE_ESTUDOS.length) {
+                    novoIndex = 0;
+                }
+                await updateDoc(userDocRef, { cicloIndex: novoIndex });
+            } catch (error) {
+                console.error("Erro ao atualizar o ciclo:", error);
             }
-            await updateDoc(userDocRef, { cicloIndex: novoIndex });
-        } catch (error) {
-            console.error("Erro ao atualizar o ciclo:", error);
         }
 
     } else {
@@ -478,12 +501,16 @@ function renderQuiz() { /* ...código omitido... */
     const materia = questaoAtual.materia;
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
+    // (ATUALIZADO) Calcula a meta de questões para o modo "Estudo Livre"
+    // No modo livre, a meta é simplesmente o total de questões
+    const metaDoQuiz = (quizReturnPath === 'guided') ? metaQuestoesDoDia : quizQuestoes.length;
+
     appContent.innerHTML = `
         <h2 class="text-2xl font-bold text-white mb-2 capitalize">Matéria: ${materia.replace('_', ' ')}</h2>
-        <p class="text-gray-400 mb-6">Questão ${quizIndexAtual + 1} de ${Math.min(quizQuestoes.length, metaQuestoesDoDia)}</p>
+        <p class="text-gray-400 mb-6">Questão ${quizIndexAtual + 1} de ${Math.min(quizQuestoes.length, metaDoQuiz)}</p>
         <div class="${cardStyle}">
             <div class="mb-6"><p class="text-gray-400 text-sm mb-2">Enunciado da Questão</p><p class="text-white text-lg">${questaoAtual.enunciado}</p></div>
-            <div classa="space-y-4">
+            <div class="space-y-4">
                 <div class="${alternativaStyle}" data-alternativa="A"><span class="font-bold mr-2">A)</span> ${questaoAtual.alternativas.A}</div>
                 <div class="${alternativaStyle}" data-alternativa="B"><span class="font-bold mr-2">B)</span> ${questaoAtual.alternativas.B}</div>
                 <div class="${alternativaStyle}" data-alternativa="C"><span class="font-bold mr-2">C)</span> ${questaoAtual.alternativas.C}</div>
