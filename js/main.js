@@ -1,12 +1,13 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.8 - MÓDULO DE SIMULADOS V1)
+ * ARQUIVO: js/main.js (VERSÃO 5.9 - CORREÇÃO NAVEGAÇÃO "SAIR")
  *
  * NOVIDADES:
- * - Adiciona o "Menu de Simulados" ao dashboard do aluno.
- * - Adiciona a lógica para "Iniciar Simulado por Edição".
- * - Adiciona um cronómetro básico ao ecrã do Quiz.
- * - (O bug de navegação do "Sair" ainda está pendente)
+ * - Remove a variável global 'quizReturnPath'.
+ * - Passa o caminho de retorno (returnPath) via 'data-return-path'
+ * no botão 'Sair'.
+ * - Corrige o bug do botão "Sair" do Estudo Livre.
+ * - Corrige o bug do botão "Sair" do Simulado.
  * ========================================================
  */
 
@@ -34,8 +35,8 @@ let quizIndexAtual = 0;
 let alternativaSelecionada = null; 
 let respostaConfirmada = false;  
 let metaQuestoesDoDia = 0; 
-let quizReturnPath = 'menu'; 
-let cronometroInterval = null; // (NOVO) Para o cronómetro
+let cronometroInterval = null; 
+// let quizReturnPath = 'menu'; // <-- REMOVIDO!
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -43,13 +44,13 @@ onAuthStateChanged(auth, (user) => {
         loadDashboard(user);
     } else {
         appContent.innerHTML = '';
-        if (cronometroInterval) clearInterval(cronometroInterval); // Limpa o cronómetro se o user sair
+        if (cronometroInterval) clearInterval(cronometroInterval); 
     }
 });
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
 async function loadDashboard(user) {
-    if (cronometroInterval) clearInterval(cronometroInterval); // Limpa qualquer cronómetro
+    if (cronometroInterval) clearInterval(cronometroInterval); 
     try {
         appContent.innerHTML = renderLoadingState();
         const userDocRef = doc(db, 'users', user.uid);
@@ -102,7 +103,6 @@ appContent.addEventListener('click', async (e) => {
 
     // --- Ações de Aluno ---
     if (action === 'show-guided-planner') {
-        quizReturnPath = 'menu'; 
         const user = auth.currentUser;
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         const userData = userDoc.data();
@@ -113,10 +113,8 @@ appContent.addEventListener('click', async (e) => {
         }
     }
     if (action === 'show-free-study') {
-        quizReturnPath = 'free-study'; 
         appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
     }
-    // (NOVO) Menu de Simulados
     if (action === 'show-simulados-menu') {
         appContent.innerHTML = renderSimuladosMenu();
     }
@@ -125,9 +123,10 @@ appContent.addEventListener('click', async (e) => {
     }
     if (action === 'start-study-session') {
         const materia = actionButton.dataset.materia;
-        await handleStartStudySession(materia);
+        // (ATUALIZADO) Passa o caminho de retorno para a função de início
+        const returnPath = actionButton.closest('[data-return-context]')?.dataset.returnContext || 'menu';
+        await handleStartStudySession(materia, returnPath);
     }
-    // (NOVO) Iniciar Simulado
     if (action === 'start-simulado-edicao') {
         const edicao = actionButton.dataset.edicao;
         await handleStartSimulado(edicao);
@@ -136,11 +135,18 @@ appContent.addEventListener('click', async (e) => {
 
     // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { handleConfirmarResposta(); }
-    if (action === 'proxima-questao') { await handleProximaQuestao(); }
+    if (action === 'proxima-questao') { 
+        // (ATUALIZADO) Passa o caminho de retorno
+        const returnPath = actionButton.dataset.returnPath;
+        await handleProximaQuestao(returnPath); 
+    }
     if (action === 'sair-quiz') {
-        // (BUG AINDA PRESENTE - vamos ignorar por agora como pedido)
-        if (quizReturnPath === 'free-study') {
+        // (ATUALIZADO) Lê o caminho de retorno do próprio botão
+        const returnPath = actionButton.dataset.returnPath;
+        if (returnPath === 'free-study') {
             appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
+        } else if (returnPath === 'simulados') {
+            appContent.innerHTML = renderSimuladosMenu();
         } else {
             loadDashboard(auth.currentUser); 
         }
@@ -203,6 +209,7 @@ async function handleDeleteQuestion(docId, button) { /* ...código omitido... */
 
 
 // --- [ PARTE 9: LÓGICA DE ALUNO ] ---
+// (Sem alteração)
 async function handleSavePlannerSetup(form) { /* ...código omitido... */ 
     const meta = form.metaDiaria.value;
     const botao = form.querySelector('button');
@@ -222,7 +229,9 @@ async function handleSavePlannerSetup(form) { /* ...código omitido... */
         botao.textContent = 'Erro ao salvar!';
     }
 }
-async function handleStartStudySession(materia) {
+
+// (ATUALIZADO) Agora aceita o 'returnPath'
+async function handleStartStudySession(materia, returnPath) {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const questoesRef = collection(db, 'questoes');
@@ -242,7 +251,7 @@ async function handleStartStudySession(materia) {
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         const userData = userDoc.data();
         
-        if (quizReturnPath === 'menu') { // Veio do 'guided'
+        if (returnPath === 'menu') { // Veio do 'guided'
             metaQuestoesDoDia = userData?.metaDiaria || 20;
         } else { // Veio do 'free-study'
             metaQuestoesDoDia = questoesArray.length;
@@ -253,45 +262,51 @@ async function handleStartStudySession(materia) {
         alternativaSelecionada = null;
         respostaConfirmada = false;
         
-        renderQuiz("Estudo de Matéria"); // Chama o Quiz
+        renderQuiz("Estudo de Matéria", null, returnPath); // Passa o caminho de retorno
+
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>`;
     }
 }
-async function handleProximaQuestao() {
+
+// (ATUALIZADO) Agora aceita o 'returnPath'
+async function handleProximaQuestao(returnPath) {
     quizIndexAtual++; 
     
-    if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
+    if (quizIndexAtual >= quizQuestoes.length || (returnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
         
         let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
         let textoBotao = "Voltar ao Estudo Livre"; 
+        let returnAction = 'free-study'; // Onde o botão 'Sair' vai levar
 
-        if (quizReturnPath === 'menu') { 
+        if (returnPath === 'menu') { 
             textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões de ${quizQuestoes[0].materia}!`;
             textoBotao = "Voltar ao Menu Principal";
+            returnAction = 'menu';
         }
         
-        // (NOVO) Se for um simulado, o botão é diferente
-        if (quizReturnPath === 'simulado') {
+        if (returnPath === 'simulado') {
             textoFinal = `Você completou o simulado de ${quizQuestoes.length} questões.`;
             textoBotao = "Voltar ao Menu de Simulados";
+            returnAction = 'simulados';
         }
 
-        if (cronometroInterval) clearInterval(cronometroInterval); // Para o cronómetro
+        if (cronometroInterval) clearInterval(cronometroInterval); 
 
         appContent.innerHTML = `
             <div class="text-center">
                 <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
                 <p class="text-gray-300 mb-8">${textoFinal}</p>
-                <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
+                <button data-action="sair-quiz" data-return-path="${returnAction}" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
                     ${textoBotao}
                 </button>
             </div>
         `;
         
-        if (quizReturnPath === 'menu') {
+        if (returnPath === 'menu') {
             try {
+                // ... (lógica de atualizar ciclo, sem alteração)
                 const user = auth.currentUser;
                 const userDocRef = doc(db, 'users', user.uid);
                 const userDoc = await getDoc(userDocRef);
@@ -308,9 +323,14 @@ async function handleProximaQuestao() {
     } else {
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        renderQuiz(quizReturnPath === 'simulado' ? 'Simulado' : 'Estudo de Matéria'); // Passa o título
+        renderQuiz(
+            returnPath === 'simulado' ? `Simulado ${quizQuestoes[0].edicao}` : 'Estudo de Matéria',
+            null,
+            returnPath
+        );
     }
 }
+// (Sem alteração)
 function handleConfirmarResposta() { /* ...código omitido... */ 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
@@ -341,37 +361,33 @@ function handleConfirmarResposta() { /* ...código omitido... */
     const botaoConfirmar = document.getElementById('quiz-botao-confirmar');
     botaoConfirmar.textContent = 'Próxima Questão';
     botaoConfirmar.dataset.action = 'proxima-questao';
+    // (ATUALIZADO) Passa o caminho de retorno para o botão "Próxima Questão"
+    botaoConfirmar.dataset.returnPath = document.getElementById('quiz-botao-sair').dataset.returnPath;
 }
 
-// ===============================================
-// (NOVO) LÓGICA DE SIMULADO
-// ===============================================
+// (ATUALIZADO)
 async function handleStartSimulado(edicao) {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const questoesRef = collection(db, 'questoes');
-        // Consulta por edição
         const q = query(questoesRef, where("edicao", "==", edicao));
         const querySnapshot = await getDocs(q);
-        
         const questoesArray = [];
-        querySnapshot.forEach((doc) => {
-            questoesArray.push(doc.data());
-        });
+        querySnapshot.forEach((doc) => { questoesArray.push(doc.data()); });
 
         if (questoesArray.length === 0) {
             appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão da "${edicao}" encontrada.</p><button data-action="show-simulados-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>`;
             return;
         }
         
-        quizReturnPath = 'simulado'; // Define o caminho de retorno
-        metaQuestoesDoDia = questoesArray.length; // Meta é a prova inteira
-        quizQuestoes = questoesArray; // (Poderíamos embaralhar aqui)
+        metaQuestoesDoDia = questoesArray.length; 
+        quizQuestoes = questoesArray; 
         quizIndexAtual = 0;           
         alternativaSelecionada = null;
         respostaConfirmada = false;
         
-        renderQuiz(`Simulado ${edicao}`, 5 * 60 * 60); // Inicia o quiz com 5 horas
+        // (ATUALIZADO) Passa o caminho de retorno
+        renderQuiz(`Simulado ${edicao}`, 5 * 60 * 60, 'simulado'); 
 
     } catch (error) {
         console.error("Erro ao carregar simulado:", error);
@@ -379,11 +395,9 @@ async function handleStartSimulado(edicao) {
     }
 }
 
-// ===============================================
-// (NOVO) LÓGICA DO CRONÓMETRO
-// ===============================================
-function startCronometro(duracaoSegundos) {
-    if (cronometroInterval) clearInterval(cronometroInterval); // Limpa o anterior
+// (Sem alteração)
+function startCronometro(duracaoSegundos) { /* ...código omitido... */ 
+    if (cronometroInterval) clearInterval(cronometroInterval); 
 
     const cronometroEl = document.getElementById('quiz-cronometro');
     if (!cronometroEl) return;
@@ -401,7 +415,6 @@ function startCronometro(duracaoSegundos) {
         if (--tempoRestante < 0) {
             clearInterval(cronometroInterval);
             cronometroEl.textContent = "Tempo Esgotado!";
-            // (Aqui poderíamos forçar o fim do simulado)
         }
     }, 1000);
 }
@@ -409,11 +422,11 @@ function startCronometro(duracaoSegundos) {
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
-function renderLoadingState() {
+// (Sem alteração)
+function renderLoadingState() { /* ...código omitido... */ 
     return `<p class="text-gray-400">A carregar...</p>`;
 }
-
-// (PAINEL DE ADMIN - Sem alteração)
+// (Sem alteração)
 function renderAdminDashboard(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     return `
@@ -426,11 +439,8 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
         </div>
     `;
 }
-
-// ===============================================
-// (ATUALIZADO) renderStudentDashboard_Menu
-// ===============================================
-function renderStudentDashboard_Menu(userData) {
+// (Sem alteração)
+function renderStudentDashboard_Menu(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
     return `
@@ -441,19 +451,15 @@ function renderStudentDashboard_Menu(userData) {
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
         </div>
         <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
-        
         <div class="grid md:grid-cols-3 gap-6">
-            
             <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}">
                 <h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3>
                 <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p>
             </div>
-            
             <div data-action="show-free-study" class="${cardStyle} ${cardHover}">
                 <h3 class="text-2xl font-bold text-blue-400 mb-3">Estudo Livre</h3>
                 <p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p>
             </div>
-
             <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}">
                 <h3 class="text-2xl font-bold text-blue-400 mb-3">Simulados</h3>
                 <p class="text-gray-300">Faça provas completas por edição ou por temas.</p>
@@ -461,7 +467,6 @@ function renderStudentDashboard_Menu(userData) {
         </div>
     `;
 }
-
 // (Sem alteração)
 function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -477,19 +482,19 @@ function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */
                 Sua meta é resolver ${metaDoDia} questões.
             </p>
             <button data-action="start-study-session" data-materia="${materiaDoDia}"
-                    class="w-full md:w-auto p-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 transition duration-300">
-                Iniciar ${metaDoDia} Questões de ${materiaDoDia.replace('_', ' ')}
+                    class="w-full md:w-auto p-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 transition duration-300"
+                    data-return-context="menu"> Iniciar ${metaDoDia} Questões de ${materiaDoDia.replace('_', ' ')}
             </button>
         </div>
     `;
 }
-// (Sem alteração)
-function renderFreeStudyDashboard(userData) { /* ...código omitido... */ 
+// (ATUALIZADO)
+function renderFreeStudyDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
     return `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
-        <div class="${cardStyle}">
+        <div class="${cardStyle}" data-return-context="free-study"> 
             <h2 class="text-2xl font-bold text-white mb-6">Estudo Livre</h2>
             <p class="text-gray-300 mb-6">Selecione uma matéria para iniciar (sem meta de questões):</p>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -594,23 +599,16 @@ async function renderListQuestionsUI() { /* ...código omitido... */
         appContent.innerHTML = `<p>Erro ao listar: ${error.message}</p>`;
     }
 }
-
-// ===============================================
-// (NOVO) Menu de Simulados
-// ===============================================
-function renderSimuladosMenu() {
+// (Sem alteração)
+function renderSimuladosMenu() { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
-    
-    // Lista de edições (você pode carregar isto do Firestore no futuro, mas por agora está fixo)
     const edicoes = ["OAB-38", "OAB-37", "OAB-36", "OAB-35"];
-
     return `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle}">
             <h2 class="text-2xl font-bold text-white mb-6">Simulados</h2>
             <p class="text-gray-300 mb-6">Escolha um tipo de simulado para iniciar:</p>
-
             <div class="grid md:grid-cols-2 gap-6">
                 <div class="${cardStyle}">
                     <h3 class="text-xl font-bold text-blue-400 mb-4">Por Edição Anterior</h3>
@@ -623,7 +621,6 @@ function renderSimuladosMenu() {
                         `).join('')}
                     </div>
                 </div>
-
                 <div data-action="start-simulado-acertivo" class="${cardStyle} ${cardHover} opacity-50 cursor-not-allowed">
                     <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Acertivo (Em Breve)</h3>
                     <p class="text-gray-400">Um simulado de 80 questões focado apenas nos temas mais cobrados.</p>
@@ -634,16 +631,15 @@ function renderSimuladosMenu() {
 }
 
 // ===============================================
-// (ATUALIZADO) renderQuiz - agora com Cronómetro
+// (ATUALIZADO) renderQuiz - agora com o 'data-return-path'
 // ===============================================
-function renderQuiz(titulo, duracaoSegundos = null) {
+function renderQuiz(titulo, duracaoSegundos = null, returnPath = 'menu') {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const materia = questaoAtual.materia;
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
-    const metaDoQuiz = (quizReturnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
+    const metaDoQuiz = (returnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
 
-    // (NOVO) HTML do Cronómetro
     let cronometroHtml = '';
     if (duracaoSegundos) {
         cronometroHtml = `
@@ -668,12 +664,12 @@ function renderQuiz(titulo, duracaoSegundos = null) {
         </div>
         <div id="quiz-comentario" class="${cardStyle} mt-6 hidden"></div>
         <div class="mt-6 flex justify-between">
-            <button data-action="sair-quiz" class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">Sair</button>
-            <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
+            <button id="quiz-botao-sair" data-action="sair-quiz" data-return-path="${returnPath}" class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">Sair</button>
+            
+            <button id="quiz-botao-confirmar" data-action="confirmar-resposta" data-return-path="${returnPath}" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
         </div>
     `;
 
-    // (NOVO) Inicia o cronómetro se ele existir
     if (duracaoSegundos) {
         startCronometro(duracaoSegundos);
     }
