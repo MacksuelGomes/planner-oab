@@ -1,15 +1,24 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.15 - ASSISTENTE DE IA)
+ * ARQUIVO: js/main.js (VERSÃO 5.14 - ASSISTENTE DE IA GEMINI)
  *
  * NOVIDADES:
- * - Importa a biblioteca GoogleGenerativeAI (Gemini).
- * - Adiciona um placeholder para a SUA CHAVE DE API.
- * - O Dashboard do Aluno agora encontra a "matéria mais fraca".
- * - Adiciona o botão "Pedir Ajuda da IA".
- * - Adiciona a lógica 'handleAskAIHelp' para chamar o Gemini.
+ * - Adiciona o placeholder da Chave de API do Gemini.
+ * - Adiciona o botão "Pedir Ajuda (IA)" ao Relatório de Desempenho.
+ * - Adiciona a lógica 'handleGetAiHelp' para chamar a API do Gemini.
+ * - Adiciona o ecrã para mostrar a resposta da IA.
  * ========================================================
  */
+
+// ========================================================
+// !!!!!!!!!!!!!!!!!!! IMPORTANTE !!!!!!!!!!!!!!!!!!!!!!!!!!
+// COLE A SUA *NOVA* CHAVE SECRETA DA API DO GEMINI AQUI:
+// (Esta chave ficará pública no seu GitHub,
+// o seu limite de orçamento é a sua proteção)
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+const GEMINI_API_KEY = "[AIzaSyCrDKh7SVXehYjBlqyclYk8-N_QRBi7s7E]";
+// ========================================================
+
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
 import { auth, db } from './auth.js'; 
@@ -18,18 +27,6 @@ import {
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
     setDoc, increment 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-// (NOVA IMPORTAÇÃO)
-import { 
-    GoogleGenerativeAI 
-} from "https://esm.run/@google/generative-ai";
-
-// ===============================================
-// (IMPORTANTE!) COLE A SUA NOVA CHAVE DE API AQUI
-// ===============================================
-// (Esta chave ficará pública, mas protegida pelo seu orçamento)
-const GEMINI_API_KEY = "AIzaSyCrDKh7SVXehYjBlqyclYk8-N_QRBi7s7E";
-// ===============================================
-
 
 // --- [ PARTE 2: SELETORES DO DOM ] ---
 const appContent = document.getElementById('app-content');
@@ -150,10 +147,10 @@ appContent.addEventListener('click', async (e) => {
         await handleStartSimuladoAcertivo();
     }
     // (NOVO) Ação da IA
-    if (action === 'ask-ai-help') {
+    if (action === 'get-ai-help') {
         const materia = actionButton.dataset.materia;
         const taxa = actionButton.dataset.taxa;
-        await handleAskAIHelp(materia, taxa);
+        await handleGetAiHelp(materia, taxa);
     }
 
     // --- Ações do Quiz ---
@@ -402,7 +399,7 @@ async function handleStartSimuladoAcertivo() { /* ...código omitido... */
         const themeCounts = new Map();
         const questionsByTheme = new Map();
         const questoesRef = collection(db, 'questoes');
-        const querySnapshot = await getDocs(q);
+        const querySnapshot = await getDocs(questoesRef);
         if (querySnapshot.empty) {
             let returnButtonHtml = getVoltarButtonHtml(); 
             appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão encontrada na base de dados.</p>${returnButtonHtml}`;
@@ -459,43 +456,60 @@ function startCronometro(duracaoSegundos) { /* ...código omitido... */
 }
 
 // ===============================================
-// (NOVA) LÓGICA DO ASSISTENTE DE IA
+// (NOVO) LÓGICA DA IA (GEMINI)
 // ===============================================
-async function handleAskAIHelp(materia, taxa) {
-    appContent.innerHTML = renderLoadingState(); // Mostra "A carregar..."
+async function handleGetAiHelp(materia, taxa) {
+    appContent.innerHTML = renderLoadingState();
 
+    // 1. Criar o Prompt
+    const prompt = `
+        Aja como um tutor especialista na Prova da OAB (Brasil).
+        Um aluno está com dificuldade na matéria de "${materia}". A taxa de acerto dele(a) é de apenas ${taxa}%.
+        
+        Por favor, forneça, em português do Brasil:
+        1.  Uma breve (um parágrafo) mensagem de encorajamento.
+        2.  Uma lista (bullet points) dos 3 (três) temas mais importantes dentro de "${materia}" que este aluno deve focar para melhorar a sua nota.
+        3.  Uma breve explicação (uma frase) para cada tema.
+        
+        Seja conciso, direto ao ponto e motivacional.
+    `;
+
+    // 2. Chamar a API do Gemini (Modelo Flash, que é rápido e barato)
+    const url = `https-proxy.runo.dev/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+    
     try {
-        // 1. Inicializa o Gemini com a sua chave
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-pro"});
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{ "text": prompt }]
+                }]
+            })
+        });
 
-        // 2. Cria o prompt
-        const prompt = `
-            Seja um tutor especialista na Prova da OAB.
-            Meu aluno está com dificuldade na matéria "${materia}", com uma taxa de acerto de apenas ${taxa}%.
-            
-            Crie um mini-plano de estudos para ele em 3 passos simples,
-            focando nos temas mais importantes dessa matéria para a prova da OAB.
-            
-            Formate a resposta de forma clara e amigável. Use **negrito** para os títulos.
-        `;
+        if (!response.ok) {
+            throw new Error(`Erro na API: ${response.statusText}`);
+        }
 
-        // 3. Chama a IA
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        const data = await response.json();
+        
+        // 3. Extrair o texto da resposta
+        if (!data.candidates || !data.candidates[0].content.parts[0].text) {
+             throw new Error("Resposta inesperada da API.");
+        }
+        
+        const aiResponseText = data.candidates[0].content.parts[0].text;
 
-        // 4. Mostra a resposta
-        appContent.innerHTML = renderAIResponse(text);
+        // 4. Mostrar a resposta
+        appContent.innerHTML = renderAiHelpResponse(materia, aiResponseText);
 
     } catch (error) {
-        console.error("Erro ao chamar a API do Gemini:", error);
+        console.error("Erro ao chamar a IA:", error);
         let returnButtonHtml = getVoltarButtonHtml(); 
-        appContent.innerHTML = `
-            <p class="text-red-400">Erro ao contactar o Assistente de IA.</p>
-            <p class="text-gray-400 mt-2">${error.message}</p>
-            ${returnButtonHtml}
-        `;
+        appContent.innerHTML = `<p class="text-red-400">Erro ao contactar o Assistente de IA: ${error.message}</p>${returnButtonHtml}`;
     }
 }
 
@@ -531,7 +545,7 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
 }
 
 // ===============================================
-// (ATUALIZADO) renderStudentDashboard_Menu (Adiciona botão IA)
+// (ATUALIZADO) renderStudentDashboard_Menu (Adiciona o botão da IA)
 // ===============================================
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -540,39 +554,40 @@ async function renderStudentDashboard_Menu(userData) {
     // --- (LÓGICA DE STATS) ---
     const progressoRef = collection(db, 'users', auth.currentUser.uid, 'progresso');
     const progressoSnapshot = await getDocs(progressoRef);
-
     let totalResolvidasGlobal = 0;
     let totalAcertosGlobal = 0;
     let materiaStatsHtml = ''; 
-    let materiaMaisFraca = null;
-    let menorTaxa = 101; // Começa acima de 100
 
     progressoSnapshot.forEach((doc) => {
         const materia = doc.id;
         const data = doc.data();
         const resolvidas = data.totalResolvidas || 0;
         const acertos = data.totalAcertos || 0;
-
         totalResolvidasGlobal += resolvidas;
         totalAcertosGlobal += acertos;
+        const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
 
-        const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100) : 100; // Assume 100 se 0/0
-        
-        // (NOVO) Encontra a matéria mais fraca
-        if (resolvidas > 5 && taxa < menorTaxa) { // Só considera se resolveu mais de 5 questões
-            menorTaxa = taxa;
-            materiaMaisFraca = materia;
+        // (NOVO) Botão da IA (só aparece se o aluno estiver com < 100%)
+        let aiButtonHtml = '';
+        if (resolvidas > 0 && taxa < 100) {
+            aiButtonHtml = `
+                <button data-action="get-ai-help" data-materia="${materia}" data-taxa="${taxa}"
+                        class="text-xs bg-blue-800 text-blue-100 font-semibold px-2 py-1 rounded-full hover:bg-blue-700 transition mt-2">
+                    Pedir Ajuda (IA)
+                </button>
+            `;
         }
 
         materiaStatsHtml += `
             <div class="mb-3">
                 <div class="flex justify-between mb-1">
                     <span class="text-sm font-medium text-blue-300 capitalize">${materia.replace('_', ' ')}</span>
-                    <span class="text-sm font-medium text-gray-300">${taxa.toFixed(0)}% (${acertos}/${resolvidas})</span>
+                    <span class="text-sm font-medium text-gray-300">${taxa}% (${acertos}/${resolvidas})</span>
                 </div>
                 <div class="w-full bg-gray-700 rounded-full h-2.5">
                     <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${taxa}%"></div>
                 </div>
+                ${aiButtonHtml}
             </div>
         `;
     });
@@ -580,60 +595,30 @@ async function renderStudentDashboard_Menu(userData) {
     const taxaAcertoGlobal = (totalResolvidasGlobal > 0) 
         ? ((totalAcertosGlobal / totalResolvidasGlobal) * 100).toFixed(0) 
         : 0;
-    
-    // (NOVO) Cria o botão da IA se houver uma matéria fraca
-    let aiButtonHtml = '';
-    if (materiaMaisFraca) {
-        aiButtonHtml = `
-            <div class="mt-6 border-t border-gray-700 pt-4">
-                <p class="text-sm text-gray-400 mb-3">Notámos que você está com ${menorTaxa.toFixed(0)}% em ${materiaMaisFraca}.</p>
-                <button data-action="ask-ai-help" 
-                        data-materia="${materiaMaisFraca}" 
-                        data-taxa="${menorTaxa.toFixed(0)}"
-                        class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold py-2 px-4 rounded hover:opacity-90 transition">
-                    Pedir Ajuda da IA
-                </button>
-            </div>
-        `;
-    }
     // --- (FIM DA LÓGICA DE STATS) ---
 
     return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
-        
         <div class="grid md:grid-cols-3 gap-6 mb-8">
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3><p class="text-3xl font-bold text-white mt-2">${totalResolvidasGlobal}</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3><p class="text-3xl font-bold text-white mt-2">${taxaAcertoGlobal}%</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
         </div>
-
         <div class="grid md:grid-cols-3 gap-6">
-            
             <div class="md:col-span-2">
                 <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
                 <div class="grid md:grid-cols-3 gap-6">
-                    <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}">
-                        <h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3>
-                        <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p>
-                    </div>
-                    <div data-action="show-free-study" class="${cardStyle} ${cardHover}">
-                        <h3 class="text-2xl font-bold text-white mb-3">Estudo Livre</h3>
-                        <p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p>
-                    </div>
-                    <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}">
-                        <h3 class="text-2xl font-bold text-blue-400 mb-3">Simulados</h3>
-                        <p class="text-gray-300">Faça provas completas por edição ou por temas.</p>
-                    </div>
+                    <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3><p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p></div>
+                    <div data-action="show-free-study" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-white mb-3">Estudo Livre</h3><p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p></div>
+                    <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-blue-400 mb-3">Simulados</h3><p class="text-gray-300">Faça provas completas por edição ou por temas.</p></div>
                 </div>
             </div>
-
             <div class="${cardStyle} md:col-span-1">
                 <h3 class="text-2xl font-bold text-white mb-6">Seu Desempenho</h3>
                 <div class="space-y-4">
                     ${materiaStatsHtml || '<p class="text-gray-400">Responda a algumas questões para ver seu progresso aqui.</p>'}
                 </div>
-                ${aiButtonHtml} </div>
-
+            </div>
         </div>
     `;
 }
@@ -811,4 +796,54 @@ function renderQuiz(duracaoSegundos = null) {
         cronometroHtml = `
             <div class="fixed top-20 right-4 bg-gray-900 text-white p-3 rounded-lg shadow-lg border border-blue-500">
                 <span class="text-2xl font-mono" id="quiz-cronometro">05:00:00</span>
+            </div>
+        `;
+    }
+    appContent.innerHTML = `
+        ${cronometroHtml}
+        <h2 class="text-2xl font-bold text-white mb-2 capitalize">${quizTitle}</h2>
+        <p class="text-gray-400 mb-6">Questão ${quizIndexAtual + 1} de ${Math.min(quizQuestoes.length, metaDoQuiz)}</p>
+        <div class="${cardStyle}">
+            <div class="mb-6"><p class="text-gray-400 text-sm mb-2">Enunciado da Questão</p><p class="text-white text-lg">${questaoAtual.enunciado}</p></div>
+            <div class="space-y-4">
+                <div class="${alternativaStyle}" data-alternativa="A"><span class="font-bold mr-2">A)</span> ${questaoAtual.alternativas.A}</div>
+                <div class="${alternativaStyle}" data-alternativa="B"><span class="font-bold mr-2">B)</span> ${questaoAtual.alternativas.B}</div>
+                <div class="${alternativaStyle}" data-alternativa="C"><span class="font-bold mr-2">C)</span> ${questaoAtual.alternativas.C}</div>
+                <div class="${alternativaStyle}" data-alternativa="D"><span class="font-bold mr-2">D)</span> ${questaoAtual.alternativas.D}</div>
+            </div>
+        </div>
+        <div id="quiz-comentario" class="${cardStyle} mt-6 hidden"></div>
+        <div class="mt-6 flex justify-between">
+            <button id="quiz-botao-sair" data-action="sair-quiz" class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">Sair</button>
+            <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
+        </div>
+    `;
+    if (duracaoSegundos) {
+        startCronometro(duracaoSegundos);
+    }
+}
 
+// ===============================================
+// (NOVO) Ecrã de Resposta da IA
+// ===============================================
+function renderAiHelpResponse(materia, aiText) {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    
+    // Converte o Markdown básico (como * e -) em HTML
+    const formattedText = aiText
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-blue-300">$1</strong>') // Negrito
+        .replace(/\n\s*-\s(.*?)/g, '<li class="ml-4 list-disc">$1</li>') // Itens de lista
+        .replace(/\n/g, '<br>'); // Novas linhas
+
+    return `
+        <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Dashboard</button>
+        <div class="${cardStyle}">
+            <h2 class="text-2xl font-bold text-white mb-4">
+                Assistente IA - Foco em <span class="capitalize">${materia.replace('_', ' ')}</span>
+            </h2>
+            <div class="text-gray-300 space-y-4 leading-relaxed">
+                ${formattedText}
+            </div>
+        </div>
+    `;
+}
