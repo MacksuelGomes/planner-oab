@@ -1,11 +1,11 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.6 - CORREÇÃO DO BOTÃO "SAIR")
+ * ARQUIVO: js/main.js (VERSÃO 5.7 - CORREÇÃO DE LÓGICA DE META)
  *
  * NOVIDADES:
- * - O botão "Sair" do quiz agora volta para o ecrã correto
- * (Menu Principal ou Estudo Livre), com base no contexto.
- * - Adiciona a variável de estado 'quizReturnPath'.
+ * - Corrige o bug em que o "Estudo Livre" usava a meta do "Planner Guiado".
+ * - O "Estudo Livre" agora define a meta como o total de questões.
+ * - O botão "Voltar" no final do quiz agora tem o texto correto.
  * ========================================================
  */
 
@@ -32,8 +32,7 @@ let quizQuestoes = [];
 let quizIndexAtual = 0;         
 let alternativaSelecionada = null; 
 let respostaConfirmada = false;  
-let metaQuestoesDoDia = 20; 
-// (NOVA VARIÁVEL) Controla para onde o botão "Sair" do quiz deve voltar
+let metaQuestoesDoDia = 0; // Agora é 0, será definido dinamicamente
 let quizReturnPath = 'menu'; // 'menu' ou 'free-study'
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
@@ -67,7 +66,7 @@ async function loadDashboard(user) {
     }
 }
 
-// --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL (ATUALIZADO) ] ---
+// --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
 appContent.addEventListener('click', async (e) => {
     
     // LÓGICA DE CLIQUE NA ALTERNATIVA
@@ -99,8 +98,7 @@ appContent.addEventListener('click', async (e) => {
 
     // --- Ações de Aluno ---
     if (action === 'show-guided-planner') {
-        // (ATUALIZADO) Define o caminho de retorno
-        quizReturnPath = 'menu'; 
+        quizReturnPath = 'menu'; // Define o caminho de retorno
         const user = auth.currentUser;
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         const userData = userDoc.data();
@@ -111,8 +109,7 @@ appContent.addEventListener('click', async (e) => {
         }
     }
     if (action === 'show-free-study') {
-        // (ATUALIZADO) Define o caminho de retorno
-        quizReturnPath = 'free-study'; 
+        quizReturnPath = 'free-study'; // Define o caminho de retorno
         appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
     }
     if (action === 'student-voltar-menu') {
@@ -126,16 +123,10 @@ appContent.addEventListener('click', async (e) => {
     // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { handleConfirmarResposta(); }
     if (action === 'proxima-questao') { await handleProximaQuestao(); }
-    
-    // ===============================================
-    // (LÓGICA DO "SAIR" ATUALIZADA)
-    // ===============================================
     if (action === 'sair-quiz') {
         if (quizReturnPath === 'free-study') {
-            // Volta para o "Estudo Livre"
             appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
         } else {
-            // Volta para o "Menu Principal" (padrão)
             loadDashboard(auth.currentUser); 
         }
     }
@@ -217,7 +208,11 @@ async function handleSavePlannerSetup(form) { /* ...código omitido... */
         botao.textContent = 'Erro ao salvar!';
     }
 }
-async function handleStartStudySession(materia) { /* ...código omitido... */ 
+
+// ===============================================
+// (ATUALIZADO) handleStartStudySession
+// ===============================================
+async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const questoesRef = collection(db, 'questoes');
@@ -234,9 +229,17 @@ async function handleStartStudySession(materia) { /* ...código omitido... */
             return;
         }
         
+        // (LÓGICA DA META CORRIGIDA)
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-        // (ATUALIZADO) Verifica se a meta existe antes de a ler
-        metaQuestoesDoDia = userDoc.data()?.metaDiaria || questoesArray.length; // Usa a meta, ou o total de questões
+        const userData = userDoc.data();
+        
+        if (quizReturnPath === 'guided') {
+            // Se veio do Planner, usa a meta diária (ou 20 por defeito)
+            metaQuestoesDoDia = userData?.metaDiaria || 20;
+        } else {
+            // Se veio do Estudo Livre, a meta é o total de questões
+            metaQuestoesDoDia = questoesArray.length;
+        }
 
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;           
@@ -250,16 +253,23 @@ async function handleStartStudySession(materia) { /* ...código omitido... */
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>`;
     }
 }
-async function handleProximaQuestao() { /* ...código omitido... */ 
+
+// ===============================================
+// (ATUALIZADO) handleProximaQuestao
+// ===============================================
+async function handleProximaQuestao() {
     quizIndexAtual++; 
     
-    // (ATUALIZADO) Usa a variável metaQuestoesDoDia correta
-    if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'guided' && quizIndexAtual >= metaQuestoesDoDia) ) {
+    // Verifica se atingiu a META DO DIA (que agora é dinâmica)
+    if (quizIndexAtual >= quizQuestoes.length || quizIndexAtual >= metaQuestoesDoDia) {
         
         // Define o texto final
         let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
-        if (quizReturnPath === 'guided') {
+        let textoBotao = "Voltar ao Estudo Livre"; // Padrão para "Estudo Livre"
+
+        if (quizReturnPath === 'menu') { // (Estava 'guided', mudei para 'menu' para ser mais claro)
             textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões de ${quizQuestoes[0].materia}!`;
+            textoBotao = "Voltar ao Menu Principal";
         }
 
         appContent.innerHTML = `
@@ -267,13 +277,13 @@ async function handleProximaQuestao() { /* ...código omitido... */
                 <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
                 <p class="text-gray-300 mb-8">${textoFinal}</p>
                 <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
-                    Voltar
+                    ${textoBotao}
                 </button>
             </div>
         `;
         
         // Só atualiza o ciclo SE estiver no modo guiado
-        if (quizReturnPath === 'guided') {
+        if (quizReturnPath === 'menu') {
             try {
                 const user = auth.currentUser;
                 const userDocRef = doc(db, 'users', user.uid);
@@ -295,6 +305,8 @@ async function handleProximaQuestao() { /* ...código omitido... */
         renderQuiz();
     }
 }
+
+// (Sem alteração)
 function handleConfirmarResposta() { /* ...código omitido... */ 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
@@ -329,8 +341,7 @@ function handleConfirmarResposta() { /* ...código omitido... */
 
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
-// (Todas as funções de renderização abaixo estão 100% sem alterações)
-
+// (Sem alteração)
 function renderLoadingState() { /* ...código omitido... */ 
     return `<p class="text-gray-400">A carregar...</p>`;
 }
@@ -501,9 +512,9 @@ function renderQuiz() { /* ...código omitido... */
     const materia = questaoAtual.materia;
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
-    // (ATUALIZADO) Calcula a meta de questões para o modo "Estudo Livre"
-    // No modo livre, a meta é simplesmente o total de questões
-    const metaDoQuiz = (quizReturnPath === 'guided') ? metaQuestoesDoDia : quizQuestoes.length;
+    // (ATUALIZADO) A meta é sempre 'metaQuestoesDoDia', que foi definida corretamente
+    // na função 'handleStartStudySession'
+    const metaDoQuiz = metaQuestoesDoDia;
 
     appContent.innerHTML = `
         <h2 class="text-2xl font-bold text-white mb-2 capitalize">Matéria: ${materia.replace('_', ' ')}</h2>
