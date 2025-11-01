@@ -1,13 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.9 - CORREÇÃO NAVEGAÇÃO "SAIR")
+ * ARQUIVO: js/main.js (VERSÃO 5.10 - CORREÇÃO NAVEGAÇÃO v2)
  *
  * NOVIDADES:
- * - Remove a variável global 'quizReturnPath'.
- * - Passa o caminho de retorno (returnPath) via 'data-return-path'
- * no botão 'Sair'.
- * - Corrige o bug do botão "Sair" do Estudo Livre.
- * - Corrige o bug do botão "Sair" do Simulado.
+ * - Corrige o bug em que o 'returnPath' se perdia
+ * no ecrã de "Sessão Concluída".
+ * - O botão "Sair" do quiz e da "Sessão Concluída"
+ * agora voltam para o ecrã correto.
  * ========================================================
  */
 
@@ -36,7 +35,7 @@ let alternativaSelecionada = null;
 let respostaConfirmada = false;  
 let metaQuestoesDoDia = 0; 
 let cronometroInterval = null; 
-// let quizReturnPath = 'menu'; // <-- REMOVIDO!
+let quizReturnPath = 'menu'; // (RESTAURADO) Esta é a forma mais simples
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -103,6 +102,7 @@ appContent.addEventListener('click', async (e) => {
 
     // --- Ações de Aluno ---
     if (action === 'show-guided-planner') {
+        quizReturnPath = 'menu'; // Define o caminho de retorno
         const user = auth.currentUser;
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         const userData = userDoc.data();
@@ -113,9 +113,11 @@ appContent.addEventListener('click', async (e) => {
         }
     }
     if (action === 'show-free-study') {
+        quizReturnPath = 'free-study'; // Define o caminho de retorno
         appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
     }
     if (action === 'show-simulados-menu') {
+        quizReturnPath = 'simulados'; // Define o caminho de retorno
         appContent.innerHTML = renderSimuladosMenu();
     }
     if (action === 'student-voltar-menu') {
@@ -123,29 +125,21 @@ appContent.addEventListener('click', async (e) => {
     }
     if (action === 'start-study-session') {
         const materia = actionButton.dataset.materia;
-        // (ATUALIZADO) Passa o caminho de retorno para a função de início
-        const returnPath = actionButton.closest('[data-return-context]')?.dataset.returnContext || 'menu';
-        await handleStartStudySession(materia, returnPath);
+        await handleStartStudySession(materia);
     }
     if (action === 'start-simulado-edicao') {
         const edicao = actionButton.dataset.edicao;
         await handleStartSimulado(edicao);
     }
 
-
     // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { handleConfirmarResposta(); }
-    if (action === 'proxima-questao') { 
-        // (ATUALIZADO) Passa o caminho de retorno
-        const returnPath = actionButton.dataset.returnPath;
-        await handleProximaQuestao(returnPath); 
-    }
+    if (action === 'proxima-questao') { await handleProximaQuestao(); }
     if (action === 'sair-quiz') {
-        // (ATUALIZADO) Lê o caminho de retorno do próprio botão
-        const returnPath = actionButton.dataset.returnPath;
-        if (returnPath === 'free-study') {
+        // (LÓGICA DE SAIR CORRIGIDA)
+        if (quizReturnPath === 'free-study') {
             appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
-        } else if (returnPath === 'simulados') {
+        } else if (quizReturnPath === 'simulados') {
             appContent.innerHTML = renderSimuladosMenu();
         } else {
             loadDashboard(auth.currentUser); 
@@ -230,8 +224,8 @@ async function handleSavePlannerSetup(form) { /* ...código omitido... */
     }
 }
 
-// (ATUALIZADO) Agora aceita o 'returnPath'
-async function handleStartStudySession(materia, returnPath) {
+// (ATUALIZADO) handleStartStudySession
+async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const questoesRef = collection(db, 'questoes');
@@ -251,7 +245,8 @@ async function handleStartStudySession(materia, returnPath) {
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         const userData = userDoc.data();
         
-        if (returnPath === 'menu') { // Veio do 'guided'
+        // (LÓGICA DA META CORRIGIDA)
+        if (quizReturnPath === 'menu') { // Veio do 'guided'
             metaQuestoesDoDia = userData?.metaDiaria || 20;
         } else { // Veio do 'free-study'
             metaQuestoesDoDia = questoesArray.length;
@@ -262,34 +257,31 @@ async function handleStartStudySession(materia, returnPath) {
         alternativaSelecionada = null;
         respostaConfirmada = false;
         
-        renderQuiz("Estudo de Matéria", null, returnPath); // Passa o caminho de retorno
-
+        renderQuiz("Estudo de Matéria"); // Chama o Quiz
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>`;
     }
 }
 
-// (ATUALIZADO) Agora aceita o 'returnPath'
-async function handleProximaQuestao(returnPath) {
+// (ATUALIZADO) handleProximaQuestao
+async function handleProximaQuestao() {
     quizIndexAtual++; 
     
-    if (quizIndexAtual >= quizQuestoes.length || (returnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
+    // (LÓGICA DA META ATUALIZADA)
+    if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
         
         let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
         let textoBotao = "Voltar ao Estudo Livre"; 
-        let returnAction = 'free-study'; // Onde o botão 'Sair' vai levar
 
-        if (returnPath === 'menu') { 
+        if (quizReturnPath === 'menu') { 
             textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões de ${quizQuestoes[0].materia}!`;
             textoBotao = "Voltar ao Menu Principal";
-            returnAction = 'menu';
         }
         
-        if (returnPath === 'simulado') {
+        if (quizReturnPath === 'simulados') {
             textoFinal = `Você completou o simulado de ${quizQuestoes.length} questões.`;
             textoBotao = "Voltar ao Menu de Simulados";
-            returnAction = 'simulados';
         }
 
         if (cronometroInterval) clearInterval(cronometroInterval); 
@@ -298,13 +290,13 @@ async function handleProximaQuestao(returnPath) {
             <div class="text-center">
                 <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
                 <p class="text-gray-300 mb-8">${textoFinal}</p>
-                <button data-action="sair-quiz" data-return-path="${returnAction}" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
+                <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
                     ${textoBotao}
                 </button>
             </div>
         `;
         
-        if (returnPath === 'menu') {
+        if (quizReturnPath === 'menu') {
             try {
                 // ... (lógica de atualizar ciclo, sem alteração)
                 const user = auth.currentUser;
@@ -324,9 +316,7 @@ async function handleProximaQuestao(returnPath) {
         alternativaSelecionada = null;
         respostaConfirmada = false;
         renderQuiz(
-            returnPath === 'simulado' ? `Simulado ${quizQuestoes[0].edicao}` : 'Estudo de Matéria',
-            null,
-            returnPath
+            quizReturnPath === 'simulados' ? `Simulado ${quizQuestoes[0].edicao}` : 'Estudo de Matéria'
         );
     }
 }
@@ -361,11 +351,9 @@ function handleConfirmarResposta() { /* ...código omitido... */
     const botaoConfirmar = document.getElementById('quiz-botao-confirmar');
     botaoConfirmar.textContent = 'Próxima Questão';
     botaoConfirmar.dataset.action = 'proxima-questao';
-    // (ATUALIZADO) Passa o caminho de retorno para o botão "Próxima Questão"
-    botaoConfirmar.dataset.returnPath = document.getElementById('quiz-botao-sair').dataset.returnPath;
 }
 
-// (ATUALIZADO)
+// (ATUALIZADO) handleStartSimulado
 async function handleStartSimulado(edicao) {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -380,14 +368,14 @@ async function handleStartSimulado(edicao) {
             return;
         }
         
+        // (ATUALIZADO) O quizReturnPath já foi definido no clique do menu
         metaQuestoesDoDia = questoesArray.length; 
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;           
         alternativaSelecionada = null;
         respostaConfirmada = false;
         
-        // (ATUALIZADO) Passa o caminho de retorno
-        renderQuiz(`Simulado ${edicao}`, 5 * 60 * 60, 'simulado'); 
+        renderQuiz(`Simulado ${edicao}`, 5 * 60 * 60); 
 
     } catch (error) {
         console.error("Erro ao carregar simulado:", error);
@@ -482,19 +470,19 @@ function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */
                 Sua meta é resolver ${metaDoDia} questões.
             </p>
             <button data-action="start-study-session" data-materia="${materiaDoDia}"
-                    class="w-full md:w-auto p-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 transition duration-300"
-                    data-return-context="menu"> Iniciar ${metaDoDia} Questões de ${materiaDoDia.replace('_', ' ')}
+                    class="w-full md:w-auto p-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 transition duration-300">
+                Iniciar ${metaDoDia} Questões de ${materiaDoDia.replace('_', ' ')}
             </button>
         </div>
     `;
 }
-// (ATUALIZADO)
-function renderFreeStudyDashboard(userData) {
+// (Sem alteração)
+function renderFreeStudyDashboard(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
     return `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
-        <div class="${cardStyle}" data-return-context="free-study"> 
+        <div class="${cardStyle}">
             <h2 class="text-2xl font-bold text-white mb-6">Estudo Livre</h2>
             <p class="text-gray-300 mb-6">Selecione uma matéria para iniciar (sem meta de questões):</p>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -630,15 +618,13 @@ function renderSimuladosMenu() { /* ...código omitido... */
     `;
 }
 
-// ===============================================
-// (ATUALIZADO) renderQuiz - agora com o 'data-return-path'
-// ===============================================
-function renderQuiz(titulo, duracaoSegundos = null, returnPath = 'menu') {
+// (ATUALIZADO) renderQuiz
+function renderQuiz(titulo, duracaoSegundos = null) {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const materia = questaoAtual.materia;
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
-    const metaDoQuiz = (returnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
+    const metaDoQuiz = (quizReturnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
 
     let cronometroHtml = '';
     if (duracaoSegundos) {
@@ -664,9 +650,8 @@ function renderQuiz(titulo, duracaoSegundos = null, returnPath = 'menu') {
         </div>
         <div id="quiz-comentario" class="${cardStyle} mt-6 hidden"></div>
         <div class="mt-6 flex justify-between">
-            <button id="quiz-botao-sair" data-action="sair-quiz" data-return-path="${returnPath}" class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">Sair</button>
-            
-            <button id="quiz-botao-confirmar" data-action="confirmar-resposta" data-return-path="${returnPath}" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
+            <button id="quiz-botao-sair" data-action="sair-quiz" class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">Sair</button>
+            <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
         </div>
     `;
 
