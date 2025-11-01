@@ -1,14 +1,11 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.1 - LÓGICA DO QUIZ)
+ * ARQUIVO: js/main.js (VERSÃO 5.2 - BANCO DE QUESTÕES V2.0)
  *
  * NOVIDADES:
- * - Adiciona variáveis de estado do quiz (questão atual, seleção).
- * - Adiciona lógica de clique para:
- * 1. Selecionar alternativas.
- * 2. Confirmar resposta (Método Reverso: mostra certo/errado e comentário).
- * 3. Ir para a "Próxima Questão".
- * 4. "Sair" do quiz.
+ * - Adiciona os campos 'edicao' e 'tema' ao formulário de "Criar Questão".
+ * - Salva estes novos campos no Firestore.
+ * - Mostra os novos campos no ecrã "Listar Questões".
  * ========================================================
  */
 
@@ -22,12 +19,11 @@ import {
 // --- [ PARTE 2: SELETORES DO DOM ] ---
 const appContent = document.getElementById('app-content');
 
-// --- [ (NOVO) PARTE 3: VARIÁVEIS DE ESTADO DO QUIZ ] ---
-// Vamos guardar o estado do quiz aqui
-let quizQuestoes = [];          // A lista de questões da matéria
-let quizIndexAtual = 0;         // O índice da questão atual (0, 1, 2...)
-let alternativaSelecionada = null; // A letra (A, B, C, D) que o aluno clicou
-let respostaConfirmada = false;  // Se o aluno já confirmou a resposta
+// --- [ PARTE 3: VARIÁVEIS DE ESTADO DO QUIZ ] ---
+let quizQuestoes = [];          
+let quizIndexAtual = 0;         
+let alternativaSelecionada = null; 
+let respostaConfirmada = false;  
 
 // --- [ PARTE 4: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -63,24 +59,21 @@ async function loadDashboard(user) {
 // --- [ PARTE 6: GESTOR DE EVENTOS PRINCIPAL ] ---
 appContent.addEventListener('click', async (e) => {
     
-    // --- (NOVO) LÓGICA DE CLIQUE NA ALTERNATIVA ---
-    // Procura um clique num elemento com 'data-alternativa'
+    // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         alternativaSelecionada = alternativaEl.dataset.alternativa;
-        // Destaca a alternativa selecionada
         document.querySelectorAll('[data-alternativa]').forEach(el => {
             el.classList.remove('bg-blue-700', 'border-blue-400');
             el.classList.add('bg-gray-700');
         });
         alternativaEl.classList.add('bg-blue-700', 'border-blue-400');
         alternativaEl.classList.remove('bg-gray-700');
-        return; // Sai da função
+        return; 
     }
 
-    // --- LÓGICA DE CLIQUE NOS BOTÕES (data-action) ---
     const action = e.target.dataset.action;
-    if (!action) return; // Se não for um botão de ação, sai
+    if (!action) return; 
 
     // --- Ações de Admin ---
     if (action === 'show-create-question-form') { appContent.innerHTML = renderCreateQuestionForm(); }
@@ -97,7 +90,7 @@ appContent.addEventListener('click', async (e) => {
         await handleStartStudySession(materia);
     }
 
-    // --- (NOVO) Ações do Quiz ---
+    // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') {
         handleConfirmarResposta();
     }
@@ -105,7 +98,7 @@ appContent.addEventListener('click', async (e) => {
         handleProximaQuestao();
     }
     if (action === 'sair-quiz') {
-        loadDashboard(auth.currentUser); // Volta ao dashboard do aluno
+        loadDashboard(auth.currentUser); 
     }
 });
 
@@ -117,14 +110,20 @@ appContent.addEventListener('submit', async (e) => {
 });
 
 
-// --- [ PARTE 7: LÓGICA DE ADMIN (sem alteração) ] ---
-async function handleCreateQuestionSubmit(form) { /* ...código omitido... */ 
+// --- [ PARTE 7: LÓGICA DE ADMIN ] ---
+
+// ===============================================
+// (ATUALIZADO) handleCreateQuestionSubmit
+// ===============================================
+async function handleCreateQuestionSubmit(form) {
     const statusEl = document.getElementById('form-status');
     statusEl.textContent = 'A guardar...';
     try {
         const formData = new FormData(form);
         const questaoData = {
             materia: formData.get('materia'),
+            edicao: formData.get('edicao'), // <-- NOVO CAMPO
+            tema: formData.get('tema'),     // <-- NOVO CAMPO
             enunciado: formData.get('enunciado'),
             alternativas: { A: formData.get('alt_a'), B: formData.get('alt_b'), C: formData.get('alt_c'), D: formData.get('alt_d') },
             correta: formData.get('correta'),
@@ -142,7 +141,8 @@ async function handleCreateQuestionSubmit(form) { /* ...código omitido... */
         statusEl.className = 'text-red-400 text-sm mt-4';
     }
 }
-async function handleDeleteQuestion(docId, button) { /* ...código omitido... */ 
+
+async function handleDeleteQuestion(docId, button) {
     if (!confirm('Tem a certeza que quer apagar esta questão? Esta ação não pode ser desfeita.')) { return; }
     button.textContent = 'A apagar...';
     button.disabled = true;
@@ -158,7 +158,7 @@ async function handleDeleteQuestion(docId, button) { /* ...código omitido... */
 }
 
 
-// --- [ PARTE 8: LÓGICA DE ALUNO - INICIAR SESSÃO DE ESTUDO ] ---
+// --- [ PARTE 8: LÓGICA DE ALUNO ] ---
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -176,13 +176,12 @@ async function handleStartStudySession(materia) {
             return;
         }
         
-        // (NOVO) Inicializa o estado do quiz
-        quizQuestoes = questoesArray; // Guarda as questões
-        quizIndexAtual = 0;           // Começa na primeira questão
+        quizQuestoes = questoesArray; 
+        quizIndexAtual = 0;           
         alternativaSelecionada = null;
         respostaConfirmada = false;
         
-        renderQuiz(); // Desenha o ecrã do quiz
+        renderQuiz(); 
 
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
@@ -190,7 +189,6 @@ async function handleStartStudySession(materia) {
     }
 }
 
-// --- [ (NOVO) PARTE 9: LÓGICA DE ALUNO - LÓGICA DO QUIZ ] ---
 function handleConfirmarResposta() {
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
@@ -201,26 +199,20 @@ function handleConfirmarResposta() {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const correta = questaoAtual.correta;
 
-    // Mostra o feedback (certo/errado)
     const alternativasEls = document.querySelectorAll('[data-alternativa]');
     alternativasEls.forEach(el => {
         const alt = el.dataset.alternativa;
-        
         if (alt === correta) {
-            // Marca a CORRETA
             el.classList.add('bg-green-700', 'border-green-500');
             el.classList.remove('bg-blue-700', 'bg-gray-700');
         } else if (alt === alternativaSelecionada) {
-            // Marca a ERRADA que o aluno selecionou
             el.classList.add('bg-red-700', 'border-red-500');
             el.classList.remove('bg-blue-700', 'bg-gray-700');
         } else {
-            // Remove o estilo das outras
             el.classList.add('opacity-50');
         }
     });
 
-    // Mostra o comentário (Método Reverso)
     const comentarioEl = document.getElementById('quiz-comentario');
     comentarioEl.innerHTML = `
         <h3 class="text-xl font-bold text-white mb-2">Gabarito & Comentário</h3>
@@ -228,17 +220,15 @@ function handleConfirmarResposta() {
     `;
     comentarioEl.classList.remove('hidden');
 
-    // Altera o botão de "Confirmar" para "Próxima"
     const botaoConfirmar = document.getElementById('quiz-botao-confirmar');
     botaoConfirmar.textContent = 'Próxima Questão';
     botaoConfirmar.dataset.action = 'proxima-questao';
 }
 
 function handleProximaQuestao() {
-    quizIndexAtual++; // Avança para a próxima questão
+    quizIndexAtual++; 
     
     if (quizIndexAtual >= quizQuestoes.length) {
-        // Acabou o quiz
         appContent.innerHTML = `
             <div class="text-center">
                 <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
@@ -249,7 +239,6 @@ function handleProximaQuestao() {
             </div>
         `;
     } else {
-        // Ainda há questões, renderiza a próxima
         alternativaSelecionada = null;
         respostaConfirmada = false;
         renderQuiz();
@@ -257,13 +246,13 @@ function handleProximaQuestao() {
 }
 
 
-// --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
+// --- [ PARTE 9: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
 function renderLoadingState() {
     return `<p class="text-gray-400">A carregar...</p>`;
 }
 
-// (PAINEL DE ADMIN - Sem alteração, removido "Publicar")
+// (PAINEL DE ADMIN - Sem alteração)
 function renderAdminDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     return `
@@ -302,8 +291,10 @@ function renderStudentDashboard(userData) {
     `;
 }
 
-// (FORMULÁRIO DE QUESTÃO - Sem alteração)
-function renderCreateQuestionForm() { /* ...código omitido... */ 
+// ===============================================
+// (ATUALIZADO) renderCreateQuestionForm
+// ===============================================
+function renderCreateQuestionForm() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
     const labelStyle = "block text-sm font-medium text-gray-300";
@@ -311,7 +302,21 @@ function renderCreateQuestionForm() { /* ...código omitido... */
         <button data-action="admin-voltar-painel" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Painel</button>
         <div class="${cardStyle}"><h2 class="text-2xl font-bold text-white mb-6">Criar Nova Questão</h2>
             <form id="form-create-question" class="space-y-4">
-                <div><label for="materia" class="${labelStyle}">Matéria (ex: etica, civil, penal)</label><input type="text" id="materia" name="materia" required class="${inputStyle}"></div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="materia" class="${labelStyle}">Matéria (ex: etica, civil)</label>
+                        <input type="text" id="materia" name="materia" required class="${inputStyle}">
+                    </div>
+                    <div>
+                        <label for="edicao" class="${labelStyle}">Edição (ex: OAB-38, OAB-37)</label>
+                        <input type="text" id="edicao" name="edicao" required class="${inputStyle}">
+                    </div>
+                </div>
+                <div>
+                    <label for="tema" class="${labelStyle}">Tema (ex: Honorários, Recursos)</label>
+                    <input type="text" id="tema" name="tema" class="${inputStyle}">
+                </div>
                 <div><label for="enunciado" class="${labelStyle}">Enunciado da Questão</label><textarea id="enunciado" name="enunciado" rows="3" required class="${inputStyle}"></textarea></div>
                 <div class="grid grid-cols-2 gap-4">
                     <div><label for="alt_a" class="${labelStyle}">Alternativa A</label><input type="text" id="alt_a" name="alt_a" required class="${inputStyle}"></div>
@@ -328,8 +333,10 @@ function renderCreateQuestionForm() { /* ...código omitido... */
     `;
 }
 
-// (UI DE APAGAR - Sem alteração)
-async function renderListQuestionsUI() { /* ...código omitido... */ 
+// ===============================================
+// (ATUALIZADO) renderListQuestionsUI
+// ===============================================
+async function renderListQuestionsUI() { 
     appContent.innerHTML = renderLoadingState(); 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     let listHtml = "";
@@ -342,11 +349,13 @@ async function renderListQuestionsUI() { /* ...código omitido... */
             querySnapshot.forEach((doc) => {
                 const questao = doc.data();
                 const docId = doc.id;
+                // (ATUALIZADO PARA MOSTRAR MAIS DADOS)
                 listHtml += `
                     <div id="item-${docId}" class="p-4 bg-gray-900 rounded-lg flex items-center justify-between">
                         <div>
-                            <span class="text-sm font-bold uppercase text-blue-400">${questao.materia}</span>
+                            <span class="text-sm font-bold uppercase text-blue-400">${questao.materia} | ${questao.edicao || 'N/A'}</span>
                             <p class="text-white">${questao.enunciado.substring(0, 80)}...</p>
+                            <p class="text-xs text-gray-400 mt-1">Tema: ${questao.tema || 'Não definido'}</p>
                         </div>
                         <button data-action="delete-question" data-id="${docId}" class="bg-red-600 text-white font-semibold py-1 px-3 rounded hover:bg-red-700 transition text-sm">Apagar</button>
                     </div>
@@ -366,26 +375,17 @@ async function renderListQuestionsUI() { /* ...código omitido... */
     }
 }
 
-// --- [ (ATUALIZADO) PARTE 11: HTML DO QUIZ ] ---
-// Esta função agora é chamada por renderQuiz()
+// (HTML DO QUIZ - Sem alteração)
 function renderQuiz() {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const materia = questaoAtual.materia;
-
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
-    // (NOVO) Estilo base das alternativas
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
-
     appContent.innerHTML = `
         <h2 class="text-2xl font-bold text-white mb-2 capitalize">Matéria: ${materia.replace('_', ' ')}</h2>
         <p class="text-gray-400 mb-6">Questão ${quizIndexAtual + 1} de ${quizQuestoes.length}</p>
-        
         <div class="${cardStyle}">
-            <div class="mb-6">
-                <p class="text-gray-400 text-sm mb-2">Enunciado da Questão</p>
-                <p class="text-white text-lg">${questaoAtual.enunciado}</p>
-            </div>
-
+            <div class="mb-6"><p class="text-gray-400 text-sm mb-2">Enunciado da Questão</p><p class="text-white text-lg">${questaoAtual.enunciado}</p></div>
             <div class="space-y-4">
                 <div class="${alternativaStyle}" data-alternativa="A"><span class="font-bold mr-2">A)</span> ${questaoAtual.alternativas.A}</div>
                 <div class="${alternativaStyle}" data-alternativa="B"><span class="font-bold mr-2">B)</span> ${questaoAtual.alternativas.B}</div>
@@ -393,17 +393,10 @@ function renderQuiz() {
                 <div class="${alternativaStyle}" data-alternativa="D"><span class="font-bold mr-2">D)</span> ${questaoAtual.alternativas.D}</div>
             </div>
         </div>
-
-        <div id="quiz-comentario" class="${cardStyle} mt-6 hidden">
-            </div>
-
+        <div id="quiz-comentario" class="${cardStyle} mt-6 hidden"></div>
         <div class="mt-6 flex justify-between">
-            <button data-action="sair-quiz" class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">
-                Sair
-            </button>
-            <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
-                Confirmar Resposta
-            </button>
+            <button data-action="sair-quiz" class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">Sair</button>
+            <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
         </div>
     `;
 }
