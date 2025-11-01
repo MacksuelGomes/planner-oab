@@ -16,7 +16,7 @@
 // (Esta chave ficará pública no seu GitHub,
 // o seu limite de orçamento é a sua proteção)
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-const GEMINI_API_KEY = "[AIzaSyCrDKh7SVXehYjBlqyclYk8-N_QRBi7s7E]";
+const GEMINI_API_KEY = "AIzaSyCrDKh7SVXehYjBlqyclYk8-N_QRBi7s7E";
 // ========================================================
 
 
@@ -847,3 +847,4 @@ function renderAiHelpResponse(materia, aiText) {
         </div>
     `;
 }
+
