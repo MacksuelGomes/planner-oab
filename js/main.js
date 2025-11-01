@@ -1,11 +1,13 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.14 - MELHORIA DE UI (STATS V2.0))
+ * ARQUIVO: js/main.js (VERSÃO 5.15 - ASSISTENTE DE IA)
  *
  * NOVIDADES:
- * - O Dashboard do Aluno agora mostra um "Relatório de Desempenho"
- * detalhado por matéria, com barras de progresso visuais.
- * - Isso usa os dados da subcoleção 'progresso' que já estamos guardando.
+ * - Importa a biblioteca GoogleGenerativeAI (Gemini).
+ * - Adiciona um placeholder para a SUA CHAVE DE API.
+ * - O Dashboard do Aluno agora encontra a "matéria mais fraca".
+ * - Adiciona o botão "Pedir Ajuda da IA".
+ * - Adiciona a lógica 'handleAskAIHelp' para chamar o Gemini.
  * ========================================================
  */
 
@@ -16,6 +18,18 @@ import {
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
     setDoc, increment 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+// (NOVA IMPORTAÇÃO)
+import { 
+    GoogleGenerativeAI 
+} from "https://esm.run/@google/generative-ai";
+
+// ===============================================
+// (IMPORTANTE!) COLE A SUA NOVA CHAVE DE API AQUI
+// ===============================================
+// (Esta chave ficará pública, mas protegida pelo seu orçamento)
+const GEMINI_API_KEY = "[AIzaSyCrDKh7SVXehYjBlqyclYk8-N_QRBi7s7E]";
+// ===============================================
+
 
 // --- [ PARTE 2: SELETORES DO DOM ] ---
 const appContent = document.getElementById('app-content');
@@ -72,8 +86,9 @@ async function loadDashboard(user) {
 }
 
 // --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
-// (Sem alteração)
 appContent.addEventListener('click', async (e) => {
+    
+    // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         alternativaSelecionada = alternativaEl.dataset.alternativa;
@@ -85,9 +100,13 @@ appContent.addEventListener('click', async (e) => {
         alternativaEl.classList.remove('bg-gray-700');
         return; 
     }
+
     const actionButton = e.target.closest('[data-action]');
     if (!actionButton) return; 
+
     const action = actionButton.dataset.action; 
+    
+    // --- Ações de Admin ---
     if (action === 'show-create-question-form') { appContent.innerHTML = renderCreateQuestionForm(); }
     if (action === 'show-list-questions') { await renderListQuestionsUI(); }
     if (action === 'admin-voltar-painel') { loadDashboard(auth.currentUser); }
@@ -95,6 +114,8 @@ appContent.addEventListener('click', async (e) => {
         const docId = actionButton.dataset.id;
         await handleDeleteQuestion(docId, actionButton);
     }
+
+    // --- Ações de Aluno ---
     if (action === 'show-guided-planner') {
         quizReturnPath = 'menu'; 
         const user = auth.currentUser;
@@ -128,6 +149,14 @@ appContent.addEventListener('click', async (e) => {
     if (action === 'start-simulado-acertivo') {
         await handleStartSimuladoAcertivo();
     }
+    // (NOVO) Ação da IA
+    if (action === 'ask-ai-help') {
+        const materia = actionButton.dataset.materia;
+        const taxa = actionButton.dataset.taxa;
+        await handleAskAIHelp(materia, taxa);
+    }
+
+    // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { await handleConfirmarResposta(); }
     if (action === 'proxima-questao') { await handleProximaQuestao(); }
     if (action === 'sair-quiz') {
@@ -373,7 +402,7 @@ async function handleStartSimuladoAcertivo() { /* ...código omitido... */
         const themeCounts = new Map();
         const questionsByTheme = new Map();
         const questoesRef = collection(db, 'questoes');
-        const querySnapshot = await getDocs(questoesRef);
+        const querySnapshot = await getDocs(q);
         if (querySnapshot.empty) {
             let returnButtonHtml = getVoltarButtonHtml(); 
             appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão encontrada na base de dados.</p>${returnButtonHtml}`;
@@ -429,6 +458,47 @@ function startCronometro(duracaoSegundos) { /* ...código omitido... */
     }, 1000);
 }
 
+// ===============================================
+// (NOVA) LÓGICA DO ASSISTENTE DE IA
+// ===============================================
+async function handleAskAIHelp(materia, taxa) {
+    appContent.innerHTML = renderLoadingState(); // Mostra "A carregar..."
+
+    try {
+        // 1. Inicializa o Gemini com a sua chave
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-pro"});
+
+        // 2. Cria o prompt
+        const prompt = `
+            Seja um tutor especialista na Prova da OAB.
+            Meu aluno está com dificuldade na matéria "${materia}", com uma taxa de acerto de apenas ${taxa}%.
+            
+            Crie um mini-plano de estudos para ele em 3 passos simples,
+            focando nos temas mais importantes dessa matéria para a prova da OAB.
+            
+            Formate a resposta de forma clara e amigável. Use **negrito** para os títulos.
+        `;
+
+        // 3. Chama a IA
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+
+        // 4. Mostra a resposta
+        appContent.innerHTML = renderAIResponse(text);
+
+    } catch (error) {
+        console.error("Erro ao chamar a API do Gemini:", error);
+        let returnButtonHtml = getVoltarButtonHtml(); 
+        appContent.innerHTML = `
+            <p class="text-red-400">Erro ao contactar o Assistente de IA.</p>
+            <p class="text-gray-400 mt-2">${error.message}</p>
+            ${returnButtonHtml}
+        `;
+    }
+}
+
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
@@ -461,19 +531,21 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
 }
 
 // ===============================================
-// (ATUALIZADO) renderStudentDashboard_Menu
+// (ATUALIZADO) renderStudentDashboard_Menu (Adiciona botão IA)
 // ===============================================
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
 
-    // --- (LÓGICA DE STATS - agora com loop para as barras) ---
+    // --- (LÓGICA DE STATS) ---
     const progressoRef = collection(db, 'users', auth.currentUser.uid, 'progresso');
     const progressoSnapshot = await getDocs(progressoRef);
 
     let totalResolvidasGlobal = 0;
     let totalAcertosGlobal = 0;
-    let materiaStatsHtml = ''; // (NOVO) String para as barras de progresso
+    let materiaStatsHtml = ''; 
+    let materiaMaisFraca = null;
+    let menorTaxa = 101; // Começa acima de 100
 
     progressoSnapshot.forEach((doc) => {
         const materia = doc.id;
@@ -484,14 +556,19 @@ async function renderStudentDashboard_Menu(userData) {
         totalResolvidasGlobal += resolvidas;
         totalAcertosGlobal += acertos;
 
-        const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
+        const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100) : 100; // Assume 100 se 0/0
+        
+        // (NOVO) Encontra a matéria mais fraca
+        if (resolvidas > 5 && taxa < menorTaxa) { // Só considera se resolveu mais de 5 questões
+            menorTaxa = taxa;
+            materiaMaisFraca = materia;
+        }
 
-        // (NOVO) Constrói o HTML da barra de progresso
         materiaStatsHtml += `
             <div class="mb-3">
                 <div class="flex justify-between mb-1">
                     <span class="text-sm font-medium text-blue-300 capitalize">${materia.replace('_', ' ')}</span>
-                    <span class="text-sm font-medium text-gray-300">${taxa}% (${acertos}/${resolvidas})</span>
+                    <span class="text-sm font-medium text-gray-300">${taxa.toFixed(0)}% (${acertos}/${resolvidas})</span>
                 </div>
                 <div class="w-full bg-gray-700 rounded-full h-2.5">
                     <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${taxa}%"></div>
@@ -503,6 +580,22 @@ async function renderStudentDashboard_Menu(userData) {
     const taxaAcertoGlobal = (totalResolvidasGlobal > 0) 
         ? ((totalAcertosGlobal / totalResolvidasGlobal) * 100).toFixed(0) 
         : 0;
+    
+    // (NOVO) Cria o botão da IA se houver uma matéria fraca
+    let aiButtonHtml = '';
+    if (materiaMaisFraca) {
+        aiButtonHtml = `
+            <div class="mt-6 border-t border-gray-700 pt-4">
+                <p class="text-sm text-gray-400 mb-3">Notámos que você está com ${menorTaxa.toFixed(0)}% em ${materiaMaisFraca}.</p>
+                <button data-action="ask-ai-help" 
+                        data-materia="${materiaMaisFraca}" 
+                        data-taxa="${menorTaxa.toFixed(0)}"
+                        class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold py-2 px-4 rounded hover:opacity-90 transition">
+                    Pedir Ajuda da IA
+                </button>
+            </div>
+        `;
+    }
     // --- (FIM DA LÓGICA DE STATS) ---
 
     return `
@@ -539,7 +632,7 @@ async function renderStudentDashboard_Menu(userData) {
                 <div class="space-y-4">
                     ${materiaStatsHtml || '<p class="text-gray-400">Responda a algumas questões para ver seu progresso aqui.</p>'}
                 </div>
-            </div>
+                ${aiButtonHtml} </div>
 
         </div>
     `;
@@ -718,29 +811,3 @@ function renderQuiz(duracaoSegundos = null) {
         cronometroHtml = `
             <div class="fixed top-20 right-4 bg-gray-900 text-white p-3 rounded-lg shadow-lg border border-blue-500">
                 <span class="text-2xl font-mono" id="quiz-cronometro">05:00:00</span>
-            </div>
-        `;
-    }
-    appContent.innerHTML = `
-        ${cronometroHtml}
-        <h2 class="text-2xl font-bold text-white mb-2 capitalize">${quizTitle}</h2>
-        <p class="text-gray-400 mb-6">Questão ${quizIndexAtual + 1} de ${Math.min(quizQuestoes.length, metaDoQuiz)}</p>
-        <div class="${cardStyle}">
-            <div class="mb-6"><p class="text-gray-400 text-sm mb-2">Enunciado da Questão</p><p class="text-white text-lg">${questaoAtual.enunciado}</p></div>
-            <div class="space-y-4">
-                <div class="${alternativaStyle}" data-alternativa="A"><span class="font-bold mr-2">A)</span> ${questaoAtual.alternativas.A}</div>
-                <div class="${alternativaStyle}" data-alternativa="B"><span class="font-bold mr-2">B)</span> ${questaoAtual.alternativas.B}</div>
-                <div class="${alternativaStyle}" data-alternativa="C"><span class="font-bold mr-2">C)</span> ${questaoAtual.alternativas.C}</div>
-                <div class="${alternativaStyle}" data-alternativa="D"><span class="font-bold mr-2">D)</span> ${questaoAtual.alternativas.D}</div>
-            </div>
-        </div>
-        <div id="quiz-comentario" class="${cardStyle} mt-6 hidden"></div>
-        <div class="mt-6 flex justify-between">
-            <button id="quiz-botao-sair" data-action="sair-quiz" class="bg-gray-600 text-white font-semibold py-2 px-6 rounded hover:bg-gray-700 transition">Sair</button>
-            <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
-        </div>
-    `;
-    if (duracaoSegundos) {
-        startCronometro(duracaoSegundos);
-    }
-}
