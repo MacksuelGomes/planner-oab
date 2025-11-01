@@ -1,11 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.7 - CORREÇÃO DE LÓGICA DE META)
+ * ARQUIVO: js/main.js (VERSÃO 5.8 - MÓDULO DE SIMULADOS V1)
  *
  * NOVIDADES:
- * - Corrige o bug em que o "Estudo Livre" usava a meta do "Planner Guiado".
- * - O "Estudo Livre" agora define a meta como o total de questões.
- * - O botão "Voltar" no final do quiz agora tem o texto correto.
+ * - Adiciona o "Menu de Simulados" ao dashboard do aluno.
+ * - Adiciona a lógica para "Iniciar Simulado por Edição".
+ * - Adiciona um cronómetro básico ao ecrã do Quiz.
+ * - (O bug de navegação do "Sair" ainda está pendente)
  * ========================================================
  */
 
@@ -32,8 +33,9 @@ let quizQuestoes = [];
 let quizIndexAtual = 0;         
 let alternativaSelecionada = null; 
 let respostaConfirmada = false;  
-let metaQuestoesDoDia = 0; // Agora é 0, será definido dinamicamente
-let quizReturnPath = 'menu'; // 'menu' ou 'free-study'
+let metaQuestoesDoDia = 0; 
+let quizReturnPath = 'menu'; 
+let cronometroInterval = null; // (NOVO) Para o cronómetro
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -41,11 +43,13 @@ onAuthStateChanged(auth, (user) => {
         loadDashboard(user);
     } else {
         appContent.innerHTML = '';
+        if (cronometroInterval) clearInterval(cronometroInterval); // Limpa o cronómetro se o user sair
     }
 });
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
 async function loadDashboard(user) {
+    if (cronometroInterval) clearInterval(cronometroInterval); // Limpa qualquer cronómetro
     try {
         appContent.innerHTML = renderLoadingState();
         const userDocRef = doc(db, 'users', user.uid);
@@ -98,7 +102,7 @@ appContent.addEventListener('click', async (e) => {
 
     // --- Ações de Aluno ---
     if (action === 'show-guided-planner') {
-        quizReturnPath = 'menu'; // Define o caminho de retorno
+        quizReturnPath = 'menu'; 
         const user = auth.currentUser;
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         const userData = userDoc.data();
@@ -109,8 +113,12 @@ appContent.addEventListener('click', async (e) => {
         }
     }
     if (action === 'show-free-study') {
-        quizReturnPath = 'free-study'; // Define o caminho de retorno
+        quizReturnPath = 'free-study'; 
         appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
+    }
+    // (NOVO) Menu de Simulados
+    if (action === 'show-simulados-menu') {
+        appContent.innerHTML = renderSimuladosMenu();
     }
     if (action === 'student-voltar-menu') {
         loadDashboard(auth.currentUser); 
@@ -119,11 +127,18 @@ appContent.addEventListener('click', async (e) => {
         const materia = actionButton.dataset.materia;
         await handleStartStudySession(materia);
     }
+    // (NOVO) Iniciar Simulado
+    if (action === 'start-simulado-edicao') {
+        const edicao = actionButton.dataset.edicao;
+        await handleStartSimulado(edicao);
+    }
+
 
     // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { handleConfirmarResposta(); }
     if (action === 'proxima-questao') { await handleProximaQuestao(); }
     if (action === 'sair-quiz') {
+        // (BUG AINDA PRESENTE - vamos ignorar por agora como pedido)
         if (quizReturnPath === 'free-study') {
             appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
         } else {
@@ -188,7 +203,6 @@ async function handleDeleteQuestion(docId, button) { /* ...código omitido... */
 
 
 // --- [ PARTE 9: LÓGICA DE ALUNO ] ---
-// (Sem alteração)
 async function handleSavePlannerSetup(form) { /* ...código omitido... */ 
     const meta = form.metaDiaria.value;
     const botao = form.querySelector('button');
@@ -208,10 +222,6 @@ async function handleSavePlannerSetup(form) { /* ...código omitido... */
         botao.textContent = 'Erro ao salvar!';
     }
 }
-
-// ===============================================
-// (ATUALIZADO) handleStartStudySession
-// ===============================================
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -229,15 +239,12 @@ async function handleStartStudySession(materia) {
             return;
         }
         
-        // (LÓGICA DA META CORRIGIDA)
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         const userData = userDoc.data();
         
-        if (quizReturnPath === 'guided') {
-            // Se veio do Planner, usa a meta diária (ou 20 por defeito)
+        if (quizReturnPath === 'menu') { // Veio do 'guided'
             metaQuestoesDoDia = userData?.metaDiaria || 20;
-        } else {
-            // Se veio do Estudo Livre, a meta é o total de questões
+        } else { // Veio do 'free-study'
             metaQuestoesDoDia = questoesArray.length;
         }
 
@@ -246,31 +253,32 @@ async function handleStartStudySession(materia) {
         alternativaSelecionada = null;
         respostaConfirmada = false;
         
-        renderQuiz(); 
-
+        renderQuiz("Estudo de Matéria"); // Chama o Quiz
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>`;
     }
 }
-
-// ===============================================
-// (ATUALIZADO) handleProximaQuestao
-// ===============================================
 async function handleProximaQuestao() {
     quizIndexAtual++; 
     
-    // Verifica se atingiu a META DO DIA (que agora é dinâmica)
-    if (quizIndexAtual >= quizQuestoes.length || quizIndexAtual >= metaQuestoesDoDia) {
+    if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
         
-        // Define o texto final
         let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
-        let textoBotao = "Voltar ao Estudo Livre"; // Padrão para "Estudo Livre"
+        let textoBotao = "Voltar ao Estudo Livre"; 
 
-        if (quizReturnPath === 'menu') { // (Estava 'guided', mudei para 'menu' para ser mais claro)
+        if (quizReturnPath === 'menu') { 
             textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões de ${quizQuestoes[0].materia}!`;
             textoBotao = "Voltar ao Menu Principal";
         }
+        
+        // (NOVO) Se for um simulado, o botão é diferente
+        if (quizReturnPath === 'simulado') {
+            textoFinal = `Você completou o simulado de ${quizQuestoes.length} questões.`;
+            textoBotao = "Voltar ao Menu de Simulados";
+        }
+
+        if (cronometroInterval) clearInterval(cronometroInterval); // Para o cronómetro
 
         appContent.innerHTML = `
             <div class="text-center">
@@ -282,7 +290,6 @@ async function handleProximaQuestao() {
             </div>
         `;
         
-        // Só atualiza o ciclo SE estiver no modo guiado
         if (quizReturnPath === 'menu') {
             try {
                 const user = auth.currentUser;
@@ -298,15 +305,12 @@ async function handleProximaQuestao() {
                 console.error("Erro ao atualizar o ciclo:", error);
             }
         }
-
     } else {
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        renderQuiz();
+        renderQuiz(quizReturnPath === 'simulado' ? 'Simulado' : 'Estudo de Matéria'); // Passa o título
     }
 }
-
-// (Sem alteração)
 function handleConfirmarResposta() { /* ...código omitido... */ 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
@@ -339,12 +343,77 @@ function handleConfirmarResposta() { /* ...código omitido... */
     botaoConfirmar.dataset.action = 'proxima-questao';
 }
 
+// ===============================================
+// (NOVO) LÓGICA DE SIMULADO
+// ===============================================
+async function handleStartSimulado(edicao) {
+    appContent.innerHTML = renderLoadingState(); 
+    try {
+        const questoesRef = collection(db, 'questoes');
+        // Consulta por edição
+        const q = query(questoesRef, where("edicao", "==", edicao));
+        const querySnapshot = await getDocs(q);
+        
+        const questoesArray = [];
+        querySnapshot.forEach((doc) => {
+            questoesArray.push(doc.data());
+        });
+
+        if (questoesArray.length === 0) {
+            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão da "${edicao}" encontrada.</p><button data-action="show-simulados-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>`;
+            return;
+        }
+        
+        quizReturnPath = 'simulado'; // Define o caminho de retorno
+        metaQuestoesDoDia = questoesArray.length; // Meta é a prova inteira
+        quizQuestoes = questoesArray; // (Poderíamos embaralhar aqui)
+        quizIndexAtual = 0;           
+        alternativaSelecionada = null;
+        respostaConfirmada = false;
+        
+        renderQuiz(`Simulado ${edicao}`, 5 * 60 * 60); // Inicia o quiz com 5 horas
+
+    } catch (error) {
+        console.error("Erro ao carregar simulado:", error);
+        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar simulado: ${error.message}</p>`;
+    }
+}
+
+// ===============================================
+// (NOVO) LÓGICA DO CRONÓMETRO
+// ===============================================
+function startCronometro(duracaoSegundos) {
+    if (cronometroInterval) clearInterval(cronometroInterval); // Limpa o anterior
+
+    const cronometroEl = document.getElementById('quiz-cronometro');
+    if (!cronometroEl) return;
+
+    let tempoRestante = duracaoSegundos;
+
+    cronometroInterval = setInterval(() => {
+        const horas = Math.floor(tempoRestante / 3600);
+        const minutos = Math.floor((tempoRestante % 3600) / 60);
+        const segundos = tempoRestante % 60;
+
+        cronometroEl.textContent = 
+            `${horas.toString().padStart(2, '0')}:${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`;
+
+        if (--tempoRestante < 0) {
+            clearInterval(cronometroInterval);
+            cronometroEl.textContent = "Tempo Esgotado!";
+            // (Aqui poderíamos forçar o fim do simulado)
+        }
+    }, 1000);
+}
+
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
-// (Sem alteração)
-function renderLoadingState() { /* ...código omitido... */ 
+
+function renderLoadingState() {
     return `<p class="text-gray-400">A carregar...</p>`;
 }
+
+// (PAINEL DE ADMIN - Sem alteração)
 function renderAdminDashboard(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     return `
@@ -357,7 +426,11 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
         </div>
     `;
 }
-function renderStudentDashboard_Menu(userData) { /* ...código omitido... */ 
+
+// ===============================================
+// (ATUALIZADO) renderStudentDashboard_Menu
+// ===============================================
+function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
     return `
@@ -368,18 +441,28 @@ function renderStudentDashboard_Menu(userData) { /* ...código omitido... */
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
         </div>
         <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
-        <div class="grid md:grid-cols-2 gap-6">
+        
+        <div class="grid md:grid-cols-3 gap-6">
+            
             <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}">
                 <h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3>
-                <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias. O sistema diz-lhe o que estudar a seguir.</p>
+                <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p>
             </div>
+            
             <div data-action="show-free-study" class="${cardStyle} ${cardHover}">
                 <h3 class="text-2xl font-bold text-blue-400 mb-3">Estudo Livre</h3>
-                <p class="text-gray-300">Escolha qualquer matéria, a qualquer momento. Estude no seu próprio ritmo, sem metas definidas.</p>
+                <p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p>
+            </div>
+
+            <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}">
+                <h3 class="text-2xl font-bold text-blue-400 mb-3">Simulados</h3>
+                <p class="text-gray-300">Faça provas completas por edição ou por temas.</p>
             </div>
         </div>
     `;
 }
+
+// (Sem alteração)
 function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cicloIndex = userData.cicloIndex || 0;
@@ -400,6 +483,7 @@ function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */
         </div>
     `;
 }
+// (Sem alteração)
 function renderFreeStudyDashboard(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
@@ -419,6 +503,7 @@ function renderFreeStudyDashboard(userData) { /* ...código omitido... */
         </div>
     `;
 }
+// (Sem alteração)
 function renderPlannerSetupForm() { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-8 rounded-lg shadow-xl border border-gray-700";
     const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
@@ -442,6 +527,7 @@ function renderPlannerSetupForm() { /* ...código omitido... */
         </div>
     `;
 }
+// (Sem alteração)
 function renderCreateQuestionForm() { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
@@ -470,6 +556,7 @@ function renderCreateQuestionForm() { /* ...código omitido... */
         </div>
     `;
 }
+// (Sem alteração)
 async function renderListQuestionsUI() { /* ...código omitido... */ 
     appContent.innerHTML = renderLoadingState(); 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -507,17 +594,68 @@ async function renderListQuestionsUI() { /* ...código omitido... */
         appContent.innerHTML = `<p>Erro ao listar: ${error.message}</p>`;
     }
 }
-function renderQuiz() { /* ...código omitido... */ 
+
+// ===============================================
+// (NOVO) Menu de Simulados
+// ===============================================
+function renderSimuladosMenu() {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
+    
+    // Lista de edições (você pode carregar isto do Firestore no futuro, mas por agora está fixo)
+    const edicoes = ["OAB-38", "OAB-37", "OAB-36", "OAB-35"];
+
+    return `
+        <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
+        <div class="${cardStyle}">
+            <h2 class="text-2xl font-bold text-white mb-6">Simulados</h2>
+            <p class="text-gray-300 mb-6">Escolha um tipo de simulado para iniciar:</p>
+
+            <div class="grid md:grid-cols-2 gap-6">
+                <div class="${cardStyle}">
+                    <h3 class="text-xl font-bold text-blue-400 mb-4">Por Edição Anterior</h3>
+                    <div class="grid grid-cols-2 gap-3">
+                        ${edicoes.map(ed => `
+                            <button data-action="start-simulado-edicao" data-edicao="${ed}"
+                                    class="p-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition">
+                                ${ed}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <div data-action="start-simulado-acertivo" class="${cardStyle} ${cardHover} opacity-50 cursor-not-allowed">
+                    <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Acertivo (Em Breve)</h3>
+                    <p class="text-gray-400">Um simulado de 80 questões focado apenas nos temas mais cobrados.</p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// ===============================================
+// (ATUALIZADO) renderQuiz - agora com Cronómetro
+// ===============================================
+function renderQuiz(titulo, duracaoSegundos = null) {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const materia = questaoAtual.materia;
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
-    // (ATUALIZADO) A meta é sempre 'metaQuestoesDoDia', que foi definida corretamente
-    // na função 'handleStartStudySession'
-    const metaDoQuiz = metaQuestoesDoDia;
+    const metaDoQuiz = (quizReturnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
+
+    // (NOVO) HTML do Cronómetro
+    let cronometroHtml = '';
+    if (duracaoSegundos) {
+        cronometroHtml = `
+            <div class="fixed top-20 right-4 bg-gray-900 text-white p-3 rounded-lg shadow-lg border border-blue-500">
+                <span class="text-2xl font-mono" id="quiz-cronometro">05:00:00</span>
+            </div>
+        `;
+    }
 
     appContent.innerHTML = `
-        <h2 class="text-2xl font-bold text-white mb-2 capitalize">Matéria: ${materia.replace('_', ' ')}</h2>
+        ${cronometroHtml}
+        <h2 class="text-2xl font-bold text-white mb-2 capitalize">${titulo}</h2>
         <p class="text-gray-400 mb-6">Questão ${quizIndexAtual + 1} de ${Math.min(quizQuestoes.length, metaDoQuiz)}</p>
         <div class="${cardStyle}">
             <div class="mb-6"><p class="text-gray-400 text-sm mb-2">Enunciado da Questão</p><p class="text-white text-lg">${questaoAtual.enunciado}</p></div>
@@ -534,4 +672,9 @@ function renderQuiz() { /* ...código omitido... */
             <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
         </div>
     `;
+
+    // (NOVO) Inicia o cronómetro se ele existir
+    if (duracaoSegundos) {
+        startCronometro(duracaoSegundos);
+    }
 }
