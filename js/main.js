@@ -27,7 +27,7 @@ import {
 // (IMPORTANTE!) COLE A SUA NOVA CHAVE DE API AQUI
 // ===============================================
 // (Esta chave ficará pública, mas protegida pelo seu orçamento)
-const GEMINI_API_KEY = "[AIzaSyCrDKh7SVXehYjBlqyclYk8-N_QRBi7s7E]";
+const GEMINI_API_KEY = "AIzaSyCrDKh7SVXehYjBlqyclYk8-N_QRBi7s7E";
 // ===============================================
 
 
@@ -811,3 +811,4 @@ function renderQuiz(duracaoSegundos = null) {
         cronometroHtml = `
             <div class="fixed top-20 right-4 bg-gray-900 text-white p-3 rounded-lg shadow-lg border border-blue-500">
                 <span class="text-2xl font-mono" id="quiz-cronometro">05:00:00</span>
+
