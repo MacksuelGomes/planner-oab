@@ -1,12 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.10 - CORREÇÃO NAVEGAÇÃO v2)
+ * ARQUIVO: js/main.js (VERSÃO 5.11 - CORREÇÃO NAVEGAÇÃO v3)
  *
  * NOVIDADES:
- * - Corrige o bug em que o 'returnPath' se perdia
- * no ecrã de "Sessão Concluída".
- * - O botão "Sair" do quiz e da "Sessão Concluída"
- * agora voltam para o ecrã correto.
+ * - Corrige o bug nos ecrãs de "Nenhuma questão encontrada"
+ * e "Erro ao carregar", que tinham o botão "Voltar" errado.
+ * - Esses ecrãs agora voltam para o contexto correto
+ * (Estudo Livre, Simulados, ou Menu).
  * ========================================================
  */
 
@@ -35,7 +35,7 @@ let alternativaSelecionada = null;
 let respostaConfirmada = false;  
 let metaQuestoesDoDia = 0; 
 let cronometroInterval = null; 
-let quizReturnPath = 'menu'; // (RESTAURADO) Esta é a forma mais simples
+let quizReturnPath = 'menu'; // Contexto atual: 'menu', 'free-study', ou 'simulados'
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -142,7 +142,7 @@ appContent.addEventListener('click', async (e) => {
         } else if (quizReturnPath === 'simulados') {
             appContent.innerHTML = renderSimuladosMenu();
         } else {
-            loadDashboard(auth.currentUser); 
+            loadDashboard(auth.currentUser); // Padrão é voltar ao menu
         }
     }
 });
@@ -224,7 +224,9 @@ async function handleSavePlannerSetup(form) { /* ...código omitido... */
     }
 }
 
+// ===============================================
 // (ATUALIZADO) handleStartStudySession
+// ===============================================
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -237,18 +239,23 @@ async function handleStartStudySession(materia) {
             questoesArray.push(doc.data());
         });
 
+        // ===============================================
+        // (A CORREÇÃO ESTÁ AQUI)
+        // ===============================================
         if (questoesArray.length === 0) {
-            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão de "${materia}" encontrada.</p><button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
+            // Se não houver questões, mostra uma mensagem de erro
+            // mas com o botão "Voltar" correto.
+            let returnButtonHtml = getVoltarButtonHtml(); // <-- USA A NOVA FUNÇÃO
+            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão de "${materia}" encontrada.</p>${returnButtonHtml}`;
             return;
         }
         
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         const userData = userDoc.data();
         
-        // (LÓGICA DA META CORRIGIDA)
         if (quizReturnPath === 'menu') { // Veio do 'guided'
             metaQuestoesDoDia = userData?.metaDiaria || 20;
-        } else { // Veio do 'free-study'
+        } else { // Veio do 'free-study' ou 'simulados'
             metaQuestoesDoDia = questoesArray.length;
         }
 
@@ -260,7 +267,9 @@ async function handleStartStudySession(materia) {
         renderQuiz("Estudo de Matéria"); // Chama o Quiz
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
-        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>`;
+        // (A CORREÇÃO ESTÁ AQUI TAMBÉM)
+        let returnButtonHtml = getVoltarButtonHtml(); // <-- USA A NOVA FUNÇÃO
+        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>${returnButtonHtml}`;
     }
 }
 
@@ -268,7 +277,6 @@ async function handleStartStudySession(materia) {
 async function handleProximaQuestao() {
     quizIndexAtual++; 
     
-    // (LÓGICA DA META ATUALIZADA)
     if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
         
         let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
@@ -363,12 +371,15 @@ async function handleStartSimulado(edicao) {
         const questoesArray = [];
         querySnapshot.forEach((doc) => { questoesArray.push(doc.data()); });
 
+        // ===============================================
+        // (A CORREÇÃO ESTÁ AQUI)
+        // ===============================================
         if (questoesArray.length === 0) {
-            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão da "${edicao}" encontrada.</p><button data-action="show-simulados-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>`;
+            let returnButtonHtml = getVoltarButtonHtml(); // <-- USA A NOVA FUNÇÃO
+            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão da "${edicao}" encontrada.</p>${returnButtonHtml}`;
             return;
         }
         
-        // (ATUALIZADO) O quizReturnPath já foi definido no clique do menu
         metaQuestoesDoDia = questoesArray.length; 
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;           
@@ -379,7 +390,9 @@ async function handleStartSimulado(edicao) {
 
     } catch (error) {
         console.error("Erro ao carregar simulado:", error);
-        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar simulado: ${error.message}</p>`;
+        // (A CORREÇÃO ESTÁ AQUI TAMBÉM)
+        let returnButtonHtml = getVoltarButtonHtml(); // <-- USA A NOVA FUNÇÃO
+        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar simulado: ${error.message}</p>${returnButtonHtml}`;
     }
 }
 
@@ -409,6 +422,19 @@ function startCronometro(duracaoSegundos) { /* ...código omitido... */
 
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
+
+// ===============================================
+// (NOVA FUNÇÃO AJUDANTE)
+// ===============================================
+function getVoltarButtonHtml() {
+    if (quizReturnPath === 'free-study') {
+        return `<button data-action="show-free-study" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Estudo Livre</button>`;
+    } else if (quizReturnPath === 'simulados') {
+         return `<button data-action="show-simulados-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar aos Simulados</button>`;
+    } else {
+         return `<button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
+    }
+}
 
 // (Sem alteração)
 function renderLoadingState() { /* ...código omitido... */ 
@@ -445,7 +471,7 @@ function renderStudentDashboard_Menu(userData) { /* ...código omitido... */
                 <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p>
             </div>
             <div data-action="show-free-study" class="${cardStyle} ${cardHover}">
-                <h3 class="text-2xl font-bold text-blue-400 mb-3">Estudo Livre</h3>
+                <h3 class="text-2xl font-bold text-white mb-3">Estudo Livre</h3>
                 <p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p>
             </div>
             <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}">
