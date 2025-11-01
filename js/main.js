@@ -1,12 +1,13 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.11 - CORREÇÃO NAVEGAÇÃO v3)
+ * ARQUIVO: js/main.js (VERSÃO 5.12 - LÓGICA DE STATS)
  *
  * NOVIDADES:
- * - Corrige o bug nos ecrãs de "Nenhuma questão encontrada"
- * e "Erro ao carregar", que tinham o botão "Voltar" errado.
- * - Esses ecrãs agora voltam para o contexto correto
- * (Estudo Livre, Simulados, ou Menu).
+ * - Salva o progresso (acertos/erros) no Firestore
+ * (users/{uid}/progresso/{materia}).
+ * - A função 'handleConfirmarResposta' agora chama 'salvarProgresso'.
+ * - O Dashboard do Aluno agora lê o progresso e
+ * calcula os "Stats" reais (Total Resolvido, Taxa de Acerto).
  * ========================================================
  */
 
@@ -14,7 +15,9 @@
 import { auth, db } from './auth.js'; 
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { 
-    doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc
+    doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
+    // (NOVAS IMPORTAÇÕES) para salvar stats
+    setDoc, increment 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // --- [ PARTE 2: SELETORES DO DOM ] ---
@@ -35,7 +38,7 @@ let alternativaSelecionada = null;
 let respostaConfirmada = false;  
 let metaQuestoesDoDia = 0; 
 let cronometroInterval = null; 
-let quizReturnPath = 'menu'; // Contexto atual: 'menu', 'free-study', ou 'simulados'
+let quizReturnPath = 'menu'; 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -59,7 +62,9 @@ async function loadDashboard(user) {
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
-                appContent.innerHTML = renderStudentDashboard_Menu(userData);
+                // (ATUALIZADO) A função agora é assíncrona
+                // para que ela possa buscar os stats
+                appContent.innerHTML = await renderStudentDashboard_Menu(userData);
             }
         } else {
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
@@ -71,9 +76,8 @@ async function loadDashboard(user) {
 }
 
 // --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
+// (Sem alteração)
 appContent.addEventListener('click', async (e) => {
-    
-    // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         alternativaSelecionada = alternativaEl.dataset.alternativa;
@@ -85,13 +89,9 @@ appContent.addEventListener('click', async (e) => {
         alternativaEl.classList.remove('bg-gray-700');
         return; 
     }
-
     const actionButton = e.target.closest('[data-action]');
     if (!actionButton) return; 
-
     const action = actionButton.dataset.action; 
-    
-    // --- Ações de Admin ---
     if (action === 'show-create-question-form') { appContent.innerHTML = renderCreateQuestionForm(); }
     if (action === 'show-list-questions') { await renderListQuestionsUI(); }
     if (action === 'admin-voltar-painel') { loadDashboard(auth.currentUser); }
@@ -99,10 +99,8 @@ appContent.addEventListener('click', async (e) => {
         const docId = actionButton.dataset.id;
         await handleDeleteQuestion(docId, actionButton);
     }
-
-    // --- Ações de Aluno ---
     if (action === 'show-guided-planner') {
-        quizReturnPath = 'menu'; // Define o caminho de retorno
+        quizReturnPath = 'menu'; 
         const user = auth.currentUser;
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         const userData = userDoc.data();
@@ -113,11 +111,11 @@ appContent.addEventListener('click', async (e) => {
         }
     }
     if (action === 'show-free-study') {
-        quizReturnPath = 'free-study'; // Define o caminho de retorno
+        quizReturnPath = 'free-study'; 
         appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
     }
     if (action === 'show-simulados-menu') {
-        quizReturnPath = 'simulados'; // Define o caminho de retorno
+        quizReturnPath = 'simulados'; 
         appContent.innerHTML = renderSimuladosMenu();
     }
     if (action === 'student-voltar-menu') {
@@ -131,22 +129,18 @@ appContent.addEventListener('click', async (e) => {
         const edicao = actionButton.dataset.edicao;
         await handleStartSimulado(edicao);
     }
-
-    // --- Ações do Quiz ---
-    if (action === 'confirmar-resposta') { handleConfirmarResposta(); }
+    if (action === 'confirmar-resposta') { await handleConfirmarResposta(); } // (Agora é assíncrono)
     if (action === 'proxima-questao') { await handleProximaQuestao(); }
     if (action === 'sair-quiz') {
-        // (LÓGICA DE SAIR CORRIGIDA)
         if (quizReturnPath === 'free-study') {
             appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
         } else if (quizReturnPath === 'simulados') {
             appContent.innerHTML = renderSimuladosMenu();
         } else {
-            loadDashboard(auth.currentUser); // Padrão é voltar ao menu
+            loadDashboard(auth.currentUser); 
         }
     }
 });
-
 appContent.addEventListener('submit', async (e) => {
     e.preventDefault(); 
     if (e.target.id === 'form-create-question') {
@@ -203,6 +197,7 @@ async function handleDeleteQuestion(docId, button) { /* ...código omitido... */
 
 
 // --- [ PARTE 9: LÓGICA DE ALUNO ] ---
+
 // (Sem alteração)
 async function handleSavePlannerSetup(form) { /* ...código omitido... */ 
     const meta = form.metaDiaria.value;
@@ -223,77 +218,81 @@ async function handleSavePlannerSetup(form) { /* ...código omitido... */
         botao.textContent = 'Erro ao salvar!';
     }
 }
-
-// ===============================================
-// (ATUALIZADO) handleStartStudySession
-// ===============================================
-async function handleStartStudySession(materia) {
+// (Sem alteração)
+async function handleStartStudySession(materia) { /* ...código omitido... */ 
     appContent.innerHTML = renderLoadingState(); 
     try {
         const questoesRef = collection(db, 'questoes');
         const q = query(questoesRef, where("materia", "==", materia));
         const querySnapshot = await getDocs(q);
-        
         const questoesArray = [];
         querySnapshot.forEach((doc) => {
             questoesArray.push(doc.data());
         });
-
-        // ===============================================
-        // (A CORREÇÃO ESTÁ AQUI)
-        // ===============================================
         if (questoesArray.length === 0) {
-            // Se não houver questões, mostra uma mensagem de erro
-            // mas com o botão "Voltar" correto.
-            let returnButtonHtml = getVoltarButtonHtml(); // <-- USA A NOVA FUNÇÃO
+            let returnButtonHtml = getVoltarButtonHtml(); 
             appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão de "${materia}" encontrada.</p>${returnButtonHtml}`;
             return;
         }
-        
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         const userData = userDoc.data();
-        
-        if (quizReturnPath === 'menu') { // Veio do 'guided'
+        if (quizReturnPath === 'menu') { 
             metaQuestoesDoDia = userData?.metaDiaria || 20;
-        } else { // Veio do 'free-study' ou 'simulados'
+        } else { 
             metaQuestoesDoDia = questoesArray.length;
         }
-
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;           
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        
-        renderQuiz("Estudo de Matéria"); // Chama o Quiz
+        renderQuiz("Estudo de Matéria"); 
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
-        // (A CORREÇÃO ESTÁ AQUI TAMBÉM)
-        let returnButtonHtml = getVoltarButtonHtml(); // <-- USA A NOVA FUNÇÃO
+        let returnButtonHtml = getVoltarButtonHtml(); 
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>${returnButtonHtml}`;
     }
 }
-
-// (ATUALIZADO) handleProximaQuestao
-async function handleProximaQuestao() {
+// (Sem alteração)
+async function handleStartSimulado(edicao) { /* ...código omitido... */ 
+    appContent.innerHTML = renderLoadingState(); 
+    try {
+        const questoesRef = collection(db, 'questoes');
+        const q = query(questoesRef, where("edicao", "==", edicao));
+        const querySnapshot = await getDocs(q);
+        const questoesArray = [];
+        querySnapshot.forEach((doc) => { questoesArray.push(doc.data()); });
+        if (questoesArray.length === 0) {
+            let returnButtonHtml = getVoltarButtonHtml(); 
+            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão da "${edicao}" encontrada.</p>${returnButtonHtml}`;
+            return;
+        }
+        metaQuestoesDoDia = questoesArray.length; 
+        quizQuestoes = questoesArray; 
+        quizIndexAtual = 0;           
+        alternativaSelecionada = null;
+        respostaConfirmada = false;
+        renderQuiz(`Simulado ${edicao}`, 5 * 60 * 60); 
+    } catch (error) {
+        console.error("Erro ao carregar simulado:", error);
+        let returnButtonHtml = getVoltarButtonHtml(); 
+        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar simulado: ${error.message}</p>${returnButtonHtml}`;
+    }
+}
+// (Sem alteração)
+async function handleProximaQuestao() { /* ...código omitido... */ 
     quizIndexAtual++; 
-    
     if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
-        
         let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
         let textoBotao = "Voltar ao Estudo Livre"; 
-
         if (quizReturnPath === 'menu') { 
             textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões de ${quizQuestoes[0].materia}!`;
             textoBotao = "Voltar ao Menu Principal";
         }
-        
         if (quizReturnPath === 'simulados') {
             textoFinal = `Você completou o simulado de ${quizQuestoes.length} questões.`;
             textoBotao = "Voltar ao Menu de Simulados";
         }
-
         if (cronometroInterval) clearInterval(cronometroInterval); 
-
         appContent.innerHTML = `
             <div class="text-center">
                 <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
@@ -303,10 +302,8 @@ async function handleProximaQuestao() {
                 </button>
             </div>
         `;
-        
         if (quizReturnPath === 'menu') {
             try {
-                // ... (lógica de atualizar ciclo, sem alteração)
                 const user = auth.currentUser;
                 const userDocRef = doc(db, 'users', user.uid);
                 const userDoc = await getDoc(userDocRef);
@@ -328,15 +325,31 @@ async function handleProximaQuestao() {
         );
     }
 }
-// (Sem alteração)
-function handleConfirmarResposta() { /* ...código omitido... */ 
+
+// ===============================================
+// (ATUALIZADO) handleConfirmarResposta
+// ===============================================
+async function handleConfirmarResposta() {
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
         return;
     }
+    if (respostaConfirmada) return; // Impede duplo clique
+
     respostaConfirmada = true;
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const correta = questaoAtual.correta;
+    const acertou = alternativaSelecionada === correta;
+
+    // 1. Salva o progresso no Firestore
+    try {
+        await salvarProgresso(questaoAtual.materia, acertou);
+    } catch (error) {
+        console.error("Erro ao salvar progresso:", error);
+        // (Não bloqueia o aluno, apenas mostra no console)
+    }
+
+    // 2. Mostra o feedback visual
     const alternativasEls = document.querySelectorAll('[data-alternativa]');
     alternativasEls.forEach(el => {
         const alt = el.dataset.alternativa;
@@ -350,82 +363,44 @@ function handleConfirmarResposta() { /* ...código omitido... */
             el.classList.add('opacity-50');
         }
     });
+
+    // 3. Mostra o comentário
     const comentarioEl = document.getElementById('quiz-comentario');
     comentarioEl.innerHTML = `
         <h3 class="text-xl font-bold text-white mb-2">Gabarito & Comentário</h3>
         <p class="text-gray-300">${questaoAtual.comentario || 'Nenhum comentário disponível.'}</p>
     `;
     comentarioEl.classList.remove('hidden');
+
+    // 4. Altera o botão
     const botaoConfirmar = document.getElementById('quiz-botao-confirmar');
     botaoConfirmar.textContent = 'Próxima Questão';
     botaoConfirmar.dataset.action = 'proxima-questao';
 }
 
-// (ATUALIZADO) handleStartSimulado
-async function handleStartSimulado(edicao) {
-    appContent.innerHTML = renderLoadingState(); 
-    try {
-        const questoesRef = collection(db, 'questoes');
-        const q = query(questoesRef, where("edicao", "==", edicao));
-        const querySnapshot = await getDocs(q);
-        const questoesArray = [];
-        querySnapshot.forEach((doc) => { questoesArray.push(doc.data()); });
+// ===============================================
+// (NOVO) Função para salvar progresso
+// ===============================================
+async function salvarProgresso(materia, acertou) {
+    const user = auth.currentUser;
+    if (!user) return; // Não faz nada se não houver user
 
-        // ===============================================
-        // (A CORREÇÃO ESTÁ AQUI)
-        // ===============================================
-        if (questoesArray.length === 0) {
-            let returnButtonHtml = getVoltarButtonHtml(); // <-- USA A NOVA FUNÇÃO
-            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão da "${edicao}" encontrada.</p>${returnButtonHtml}`;
-            return;
-        }
-        
-        metaQuestoesDoDia = questoesArray.length; 
-        quizQuestoes = questoesArray; 
-        quizIndexAtual = 0;           
-        alternativaSelecionada = null;
-        respostaConfirmada = false;
-        
-        renderQuiz(`Simulado ${edicao}`, 5 * 60 * 60); 
+    // O caminho para o documento de progresso desta matéria
+    // Ex: /users/USER_UID/progresso/etica
+    const progressoRef = doc(db, 'users', user.uid, 'progresso', materia);
 
-    } catch (error) {
-        console.error("Erro ao carregar simulado:", error);
-        // (A CORREÇÃO ESTÁ AQUI TAMBÉM)
-        let returnButtonHtml = getVoltarButtonHtml(); // <-- USA A NOVA FUNÇÃO
-        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar simulado: ${error.message}</p>${returnButtonHtml}`;
-    }
-}
-
-// (Sem alteração)
-function startCronometro(duracaoSegundos) { /* ...código omitido... */ 
-    if (cronometroInterval) clearInterval(cronometroInterval); 
-
-    const cronometroEl = document.getElementById('quiz-cronometro');
-    if (!cronometroEl) return;
-
-    let tempoRestante = duracaoSegundos;
-
-    cronometroInterval = setInterval(() => {
-        const horas = Math.floor(tempoRestante / 3600);
-        const minutos = Math.floor((tempoRestante % 3600) / 60);
-        const segundos = tempoRestante % 60;
-
-        cronometroEl.textContent = 
-            `${horas.toString().padStart(2, '0')}:${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`;
-
-        if (--tempoRestante < 0) {
-            clearInterval(cronometroInterval);
-            cronometroEl.textContent = "Tempo Esgotado!";
-        }
-    }, 1000);
+    // Usa setDoc com { merge: true } para criar ou atualizar o documento
+    // Usa 'increment' para adicionar +1 ao valor existente
+    await setDoc(progressoRef, {
+        totalResolvidas: increment(1),
+        totalAcertos: acertou ? increment(1) : increment(0)
+    }, { merge: true });
 }
 
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
-// ===============================================
-// (NOVA FUNÇÃO AJUDANTE)
-// ===============================================
+// (Sem alteração)
 function getVoltarButtonHtml() {
     if (quizReturnPath === 'free-study') {
         return `<button data-action="show-free-study" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Estudo Livre</button>`;
@@ -435,7 +410,6 @@ function getVoltarButtonHtml() {
          return `<button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
     }
 }
-
 // (Sem alteração)
 function renderLoadingState() { /* ...código omitido... */ 
     return `<p class="text-gray-400">A carregar...</p>`;
@@ -453,17 +427,51 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
         </div>
     `;
 }
-// (Sem alteração)
-function renderStudentDashboard_Menu(userData) { /* ...código omitido... */ 
+
+// ===============================================
+// (ATUALIZADO) renderStudentDashboard_Menu
+// ===============================================
+async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
+
+    // --- (NOVA LÓGICA DE STATS) ---
+    // 1. Buscar todos os documentos da subcoleção 'progresso'
+    const progressoRef = collection(db, 'users', auth.currentUser.uid, 'progresso');
+    const progressoSnapshot = await getDocs(progressoRef);
+
+    let totalResolvidasGlobal = 0;
+    let totalAcertosGlobal = 0;
+
+    progressoSnapshot.forEach((doc) => {
+        const data = doc.data();
+        totalResolvidasGlobal += data.totalResolvidas || 0;
+        totalAcertosGlobal += data.totalAcertos || 0;
+    });
+
+    // 2. Calcular a taxa de acerto
+    const taxaAcertoGlobal = (totalResolvidasGlobal > 0) 
+        ? ((totalAcertosGlobal / totalResolvidasGlobal) * 100).toFixed(0) 
+        : 0;
+    // --- (FIM DA LÓGICA DE STATS) ---
+
     return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
+        
         <div class="grid md:grid-cols-3 gap-6 mb-8">
-            <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
-            <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3><p class="text-3xl font-bold text-white mt-2">0%</p></div>
-            <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
+            <div class="${cardStyle}">
+                <h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3>
+                <p class="text-3xl font-bold text-white mt-2">${totalResolvidasGlobal}</p>
+            </div>
+            <div class="${cardStyle}">
+                <h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3>
+                <p class="text-3xl font-bold text-white mt-2">${taxaAcertoGlobal}%</p>
+            </div>
+            <div class="${cardStyle}">
+                <h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3>
+                <p class="text-3xl font-bold text-white mt-2">0</p> </div>
         </div>
+
         <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
         <div class="grid md:grid-cols-3 gap-6">
             <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}">
@@ -481,6 +489,7 @@ function renderStudentDashboard_Menu(userData) { /* ...código omitido... */
         </div>
     `;
 }
+
 // (Sem alteração)
 function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
