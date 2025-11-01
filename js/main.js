@@ -1,11 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.2 - BANCO DE QUESTÕES V2.0)
+ * ARQUIVO: js/main.js (VERSÃO 5.4 - MENU DE ESCOLHA DO ALUNO)
  *
  * NOVIDADES:
- * - Adiciona os campos 'edicao' e 'tema' ao formulário de "Criar Questão".
- * - Salva estes novos campos no Firestore.
- * - Mostra os novos campos no ecrã "Listar Questões".
+ * - O Dashboard do Aluno é agora um "Menu Principal".
+ * - O Aluno pode ESCOLHER entre "Planner Guiado" ou "Estudo Livre".
+ * - A lógica do Planner (v5.3) foi movida para dentro do "Planner Guiado".
+ * - O Dashboard antigo (v5.2) foi trazido de volta como "Estudo Livre".
  * ========================================================
  */
 
@@ -13,19 +14,28 @@
 import { auth, db } from './auth.js'; 
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { 
-    doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc 
+    doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // --- [ PARTE 2: SELETORES DO DOM ] ---
 const appContent = document.getElementById('app-content');
 
-// --- [ PARTE 3: VARIÁVEIS DE ESTADO DO QUIZ ] ---
+// --- [ PARTE 3: DEFINIÇÃO DO CICLO DE ESTUDOS ] ---
+const CICLO_DE_ESTUDOS = [
+    "etica", "constitucional", "civil", "processo_civil", "penal", 
+    "processo_penal", "administrativo", "tributario", "trabalho", 
+    "processo_trabalho", "empresarial", 
+    "etica", "constitucional", "civil", "processo_civil", "penal"
+];
+
+// --- [ PARTE 4: VARIÁVEIS DE ESTADO DO QUIZ ] ---
 let quizQuestoes = [];          
 let quizIndexAtual = 0;         
 let alternativaSelecionada = null; 
 let respostaConfirmada = false;  
+let metaQuestoesDoDia = 20; 
 
-// --- [ PARTE 4: LISTENER DE AUTENTICAÇÃO ] ---
+// --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
     if (user) {
         loadDashboard(user);
@@ -34,7 +44,7 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-// --- [ PARTE 5: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
+// --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
 async function loadDashboard(user) {
     try {
         appContent.innerHTML = renderLoadingState();
@@ -45,7 +55,10 @@ async function loadDashboard(user) {
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
-                appContent.innerHTML = renderStudentDashboard(userData);
+                // ===============================================
+                // (ATUALIZADO) Mostra o MENU PRINCIPAL do aluno
+                // ===============================================
+                appContent.innerHTML = renderStudentDashboard_Menu(userData);
             }
         } else {
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
@@ -56,7 +69,7 @@ async function loadDashboard(user) {
     }
 }
 
-// --- [ PARTE 6: GESTOR DE EVENTOS PRINCIPAL ] ---
+// --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
 appContent.addEventListener('click', async (e) => {
     
     // LÓGICA DE CLIQUE NA ALTERNATIVA
@@ -85,21 +98,32 @@ appContent.addEventListener('click', async (e) => {
     }
 
     // --- Ações de Aluno ---
+    // (NOVO) Ações do Menu Principal
+    if (action === 'show-guided-planner') {
+        const user = auth.currentUser;
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const userData = userDoc.data();
+        if (userData.metaDiaria) {
+            appContent.innerHTML = renderPlanner_TarefaDoDia(userData);
+        } else {
+            appContent.innerHTML = renderPlannerSetupForm();
+        }
+    }
+    if (action === 'show-free-study') {
+        appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
+    }
+    // (NOVO) Ação de Voltar
+    if (action === 'student-voltar-menu') {
+        loadDashboard(auth.currentUser); // Recarrega o menu principal do aluno
+    }
+    // Ação do Quiz
     if (action === 'start-study-session') {
         const materia = e.target.dataset.materia;
         await handleStartStudySession(materia);
     }
-
-    // --- Ações do Quiz ---
-    if (action === 'confirmar-resposta') {
-        handleConfirmarResposta();
-    }
-    if (action === 'proxima-questao') {
-        handleProximaQuestao();
-    }
-    if (action === 'sair-quiz') {
-        loadDashboard(auth.currentUser); 
-    }
+    if (action === 'confirmar-resposta') { handleConfirmarResposta(); }
+    if (action === 'proxima-questao') { await handleProximaQuestao(); }
+    if (action === 'sair-quiz') { loadDashboard(auth.currentUser); }
 });
 
 appContent.addEventListener('submit', async (e) => {
@@ -107,23 +131,22 @@ appContent.addEventListener('submit', async (e) => {
     if (e.target.id === 'form-create-question') {
         await handleCreateQuestionSubmit(e.target);
     }
+    if (e.target.id === 'form-planner-setup') {
+        await handleSavePlannerSetup(e.target);
+    }
 });
 
 
-// --- [ PARTE 7: LÓGICA DE ADMIN ] ---
-
-// ===============================================
-// (ATUALIZADO) handleCreateQuestionSubmit
-// ===============================================
-async function handleCreateQuestionSubmit(form) {
+// --- [ PARTE 8: LÓGICA DE ADMIN ] ---
+async function handleCreateQuestionSubmit(form) { /* ...código omitido... */ 
     const statusEl = document.getElementById('form-status');
     statusEl.textContent = 'A guardar...';
     try {
         const formData = new FormData(form);
         const questaoData = {
             materia: formData.get('materia'),
-            edicao: formData.get('edicao'), // <-- NOVO CAMPO
-            tema: formData.get('tema'),     // <-- NOVO CAMPO
+            edicao: formData.get('edicao'),
+            tema: formData.get('tema'),
             enunciado: formData.get('enunciado'),
             alternativas: { A: formData.get('alt_a'), B: formData.get('alt_b'), C: formData.get('alt_c'), D: formData.get('alt_d') },
             correta: formData.get('correta'),
@@ -141,8 +164,7 @@ async function handleCreateQuestionSubmit(form) {
         statusEl.className = 'text-red-400 text-sm mt-4';
     }
 }
-
-async function handleDeleteQuestion(docId, button) {
+async function handleDeleteQuestion(docId, button) { /* ...código omitido... */ 
     if (!confirm('Tem a certeza que quer apagar esta questão? Esta ação não pode ser desfeita.')) { return; }
     button.textContent = 'A apagar...';
     button.disabled = true;
@@ -158,7 +180,28 @@ async function handleDeleteQuestion(docId, button) {
 }
 
 
-// --- [ PARTE 8: LÓGICA DE ALUNO ] ---
+// --- [ PARTE 9: LÓGICA DE ALUNO ] ---
+async function handleSavePlannerSetup(form) {
+    const meta = form.metaDiaria.value;
+    const botao = form.querySelector('button');
+    botao.textContent = 'A guardar...';
+    botao.disabled = true;
+    try {
+        const user = auth.currentUser;
+        const userDocRef = doc(db, 'users', user.uid);
+        await updateDoc(userDocRef, {
+            metaDiaria: parseInt(meta, 10), 
+            cicloIndex: 0 
+        });
+        // (ATUALIZADO) Mostra a tarefa do dia
+        const userDoc = await getDoc(userDocRef);
+        appContent.innerHTML = renderPlanner_TarefaDoDia(userDoc.data());
+    } catch (error) {
+        console.error("Erro ao salvar configuração:", error);
+        botao.textContent = 'Erro ao salvar!';
+    }
+}
+
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -172,10 +215,13 @@ async function handleStartStudySession(materia) {
         });
 
         if (questoesArray.length === 0) {
-            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão de "${materia}" encontrada.</p><button data-action="admin-voltar-painel" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar</button>`;
+            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão de "${materia}" encontrada.</p><button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
             return;
         }
         
+        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        metaQuestoesDoDia = userDoc.data().metaDiaria || 20;
+
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;           
         alternativaSelecionada = null;
@@ -189,16 +235,49 @@ async function handleStartStudySession(materia) {
     }
 }
 
-function handleConfirmarResposta() {
+async function handleProximaQuestao() {
+    quizIndexAtual++; 
+    
+    if (quizIndexAtual >= quizQuestoes.length || quizIndexAtual >= metaQuestoesDoDia) {
+        appContent.innerHTML = `
+            <div class="text-center">
+                <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
+                <p class="text-gray-300 mb-8">Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.</p>
+                <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
+                    Voltar ao Menu Principal
+                </button>
+            </div>
+        `;
+        
+        try {
+            const user = auth.currentUser;
+            const userDocRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userDocRef);
+            const dadosAtuais = userDoc.data();
+            let novoIndex = (dadosAtuais.cicloIndex || 0) + 1;
+            if (novoIndex >= CICLO_DE_ESTUDOS.length) {
+                novoIndex = 0;
+            }
+            await updateDoc(userDocRef, { cicloIndex: novoIndex });
+        } catch (error) {
+            console.error("Erro ao atualizar o ciclo:", error);
+        }
+
+    } else {
+        alternativaSelecionada = null;
+        respostaConfirmada = false;
+        renderQuiz();
+    }
+}
+
+function handleConfirmarResposta() { /* ...código omitido (sem alteração)... */ 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
         return;
     }
-
     respostaConfirmada = true;
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const correta = questaoAtual.correta;
-
     const alternativasEls = document.querySelectorAll('[data-alternativa]');
     alternativasEls.forEach(el => {
         const alt = el.dataset.alternativa;
@@ -212,48 +291,26 @@ function handleConfirmarResposta() {
             el.classList.add('opacity-50');
         }
     });
-
     const comentarioEl = document.getElementById('quiz-comentario');
     comentarioEl.innerHTML = `
         <h3 class="text-xl font-bold text-white mb-2">Gabarito & Comentário</h3>
         <p class="text-gray-300">${questaoAtual.comentario || 'Nenhum comentário disponível.'}</p>
     `;
     comentarioEl.classList.remove('hidden');
-
     const botaoConfirmar = document.getElementById('quiz-botao-confirmar');
     botaoConfirmar.textContent = 'Próxima Questão';
     botaoConfirmar.dataset.action = 'proxima-questao';
 }
 
-function handleProximaQuestao() {
-    quizIndexAtual++; 
-    
-    if (quizIndexAtual >= quizQuestoes.length) {
-        appContent.innerHTML = `
-            <div class="text-center">
-                <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
-                <p class="text-gray-300 mb-8">Você completou ${quizQuestoes.length} questões de ${quizQuestoes[0].materia}.</p>
-                <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
-                    Voltar ao Dashboard
-                </button>
-            </div>
-        `;
-    } else {
-        alternativaSelecionada = null;
-        respostaConfirmada = false;
-        renderQuiz();
-    }
-}
 
-
-// --- [ PARTE 9: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
+// --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
 function renderLoadingState() {
     return `<p class="text-gray-400">A carregar...</p>`;
 }
 
 // (PAINEL DE ADMIN - Sem alteração)
-function renderAdminDashboard(userData) {
+function renderAdminDashboard(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     return `
         <h1 class="text-3xl font-bold text-white mb-2">Painel Administrativo</h1>
@@ -266,23 +323,85 @@ function renderAdminDashboard(userData) {
     `;
 }
 
-// (PAINEL DE ALUNO - Sem alteração)
-function renderStudentDashboard(userData) {
+// ===============================================
+// (NOVO) Menu Principal do Aluno
+// ===============================================
+function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
-    const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
+    const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
+
     return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
+        
         <div class="grid md:grid-cols-3 gap-6 mb-8">
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3><p class="text-3xl font-bold text-white mt-2">0%</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
         </div>
+
+        <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
+        <div class="grid md:grid-cols-2 gap-6">
+            
+            <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}">
+                <h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3>
+                <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias. O sistema diz-lhe o que estudar a seguir.</p>
+            </div>
+            
+            <div data-action="show-free-study" class="${cardStyle} ${cardHover}">
+                <h3 class="text-2xl font-bold text-blue-400 mb-3">Estudo Livre</h3>
+                <p class="text-gray-300">Escolha qualquer matéria, a qualquer momento. Estude no seu próprio ritmo, sem metas definidas.</p>
+            </div>
+        </div>
+    `;
+}
+
+// ===============================================
+// (NOVA FUNÇÃO) Dashboard do Planner (antiga v5.3)
+// ===============================================
+function renderPlanner_TarefaDoDia(userData) {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    const cicloIndex = userData.cicloIndex || 0;
+    const materiaDoDia = CICLO_DE_ESTUDOS[cicloIndex];
+    const metaDoDia = userData.metaDiaria;
+
+    return `
+        <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
+        <div class="${cardStyle} border-l-4 border-blue-400">
+            <h2 class="text-2xl font-bold text-white mb-4">
+                Sua Tarefa de Hoje
+            </h2>
+            <p class="text-gray-300 mb-6 text-lg">
+                Hoje é dia de <strong class="text-blue-300 capitalize">${materiaDoDia.replace('_', ' ')}</strong>.
+                Sua meta é resolver ${metaDoDia} questões.
+            </p>
+            
+            <button data-action="start-study-session" data-materia="${materiaDoDia}"
+                    class="w-full md:w-auto p-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 transition duration-300">
+                Iniciar ${metaDoDia} Questões de ${materiaDoDia.replace('_', ' ')}
+            </button>
+        </div>
+    `;
+}
+
+// ===============================================
+// (NOVA FUNÇÃO) Dashboard de Estudo Livre (antiga v5.2)
+// ===============================================
+function renderFreeStudyDashboard(userData) {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
+    
+    return `
+        <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle}">
-            <h2 class="text-2xl font-bold text-white mb-6">Ciclo de Estudos (Método Reverso)</h2>
-            <p class="text-gray-300 mb-6">Selecione uma matéria para iniciar:</p>
+            <h2 class="text-2xl font-bold text-white mb-6">
+                Estudo Livre
+            </h2>
+            <p class="text-gray-300 mb-6">Selecione uma matéria para iniciar (sem meta de questões):</p>
+            
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 ${materias.map(materia => `
-                    <button data-action="start-study-session" data-materia="${materia}" class="p-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-300 capitalize">
+                    <button data-action="start-study-session" data-materia="${materia}"
+                            class="p-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-300 capitalize">
                         ${materia.replace('_', ' ')}
                     </button>
                 `).join('')}
@@ -291,10 +410,34 @@ function renderStudentDashboard(userData) {
     `;
 }
 
-// ===============================================
-// (ATUALIZADO) renderCreateQuestionForm
-// ===============================================
-function renderCreateQuestionForm() {
+
+// (NOVO) Formulário de Setup do Planner (sem alteração, mas agora chamado por 'show-guided-planner')
+function renderPlannerSetupForm() { /* ...código omitido... */ 
+    const cardStyle = "bg-gray-800 p-8 rounded-lg shadow-xl border border-gray-700";
+    const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
+    const labelStyle = "block text-sm font-medium text-gray-300";
+    return `
+        <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
+        <div class="${cardStyle} max-w-lg mx-auto">
+            <h2 class="text-2xl font-bold text-white mb-4">Vamos configurar sua meta</h2>
+            <p class="text-gray-300 mb-6">Quantas questões você se compromete a resolver por dia de estudo?</p>
+            <form id="form-planner-setup" class="space-y-4">
+                <div>
+                    <label for="metaDiaria" class="${labelStyle}">Meta de Questões Diárias (ex: 20, 30)</label>
+                    <input type="number" id="metaDiaria" name="metaDiaria" min="1" value="20" required class="${inputStyle}">
+                </div>
+                <div>
+                    <button type="submit" class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 transition duration-300">
+                        Salvar e Iniciar Planner
+                    </button>
+                </div>
+            </form>
+        </div>
+    `;
+}
+
+// (FORMULÁRIO DE QUESTÃO - Sem alteração)
+function renderCreateQuestionForm() { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
     const labelStyle = "block text-sm font-medium text-gray-300";
@@ -302,21 +445,11 @@ function renderCreateQuestionForm() {
         <button data-action="admin-voltar-painel" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Painel</button>
         <div class="${cardStyle}"><h2 class="text-2xl font-bold text-white mb-6">Criar Nova Questão</h2>
             <form id="form-create-question" class="space-y-4">
-                
                 <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label for="materia" class="${labelStyle}">Matéria (ex: etica, civil)</label>
-                        <input type="text" id="materia" name="materia" required class="${inputStyle}">
-                    </div>
-                    <div>
-                        <label for="edicao" class="${labelStyle}">Edição (ex: OAB-38, OAB-37)</label>
-                        <input type="text" id="edicao" name="edicao" required class="${inputStyle}">
-                    </div>
+                    <div><label for="materia" class="${labelStyle}">Matéria (ex: etica, civil)</label><input type="text" id="materia" name="materia" required class="${inputStyle}"></div>
+                    <div><label for="edicao" class="${labelStyle}">Edição (ex: OAB-38, OAB-37)</label><input type="text" id="edicao" name="edicao" required class="${inputStyle}"></div>
                 </div>
-                <div>
-                    <label for="tema" class="${labelStyle}">Tema (ex: Honorários, Recursos)</label>
-                    <input type="text" id="tema" name="tema" class="${inputStyle}">
-                </div>
+                <div><label for="tema" class="${labelStyle}">Tema (ex: Honorários, Recursos)</label><input type="text" id="tema" name="tema" class="${inputStyle}"></div>
                 <div><label for="enunciado" class="${labelStyle}">Enunciado da Questão</label><textarea id="enunciado" name="enunciado" rows="3" required class="${inputStyle}"></textarea></div>
                 <div class="grid grid-cols-2 gap-4">
                     <div><label for="alt_a" class="${labelStyle}">Alternativa A</label><input type="text" id="alt_a" name="alt_a" required class="${inputStyle}"></div>
@@ -333,10 +466,8 @@ function renderCreateQuestionForm() {
     `;
 }
 
-// ===============================================
-// (ATUALIZADO) renderListQuestionsUI
-// ===============================================
-async function renderListQuestionsUI() { 
+// (UI DE APAGAR - Sem alteração)
+async function renderListQuestionsUI() { /* ...código omitido... */ 
     appContent.innerHTML = renderLoadingState(); 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     let listHtml = "";
@@ -349,7 +480,6 @@ async function renderListQuestionsUI() {
             querySnapshot.forEach((doc) => {
                 const questao = doc.data();
                 const docId = doc.id;
-                // (ATUALIZADO PARA MOSTRAR MAIS DADOS)
                 listHtml += `
                     <div id="item-${docId}" class="p-4 bg-gray-900 rounded-lg flex items-center justify-between">
                         <div>
@@ -376,14 +506,14 @@ async function renderListQuestionsUI() {
 }
 
 // (HTML DO QUIZ - Sem alteração)
-function renderQuiz() {
+function renderQuiz() { /* ...código omitido... */ 
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const materia = questaoAtual.materia;
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
     appContent.innerHTML = `
         <h2 class="text-2xl font-bold text-white mb-2 capitalize">Matéria: ${materia.replace('_', ' ')}</h2>
-        <p class="text-gray-400 mb-6">Questão ${quizIndexAtual + 1} de ${quizQuestoes.length}</p>
+        <p class="text-gray-400 mb-6">Questão ${quizIndexAtual + 1} de ${Math.min(quizQuestoes.length, metaQuestoesDoDia)}</p>
         <div class="${cardStyle}">
             <div class="mb-6"><p class="text-gray-400 text-sm mb-2">Enunciado da Questão</p><p class="text-white text-lg">${questaoAtual.enunciado}</p></div>
             <div class="space-y-4">
