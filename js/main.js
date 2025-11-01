@@ -1,13 +1,11 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.13 - SIMULADO ACERTIVO)
+ * ARQUIVO: js/main.js (VERSÃO 5.14 - MELHORIA DE UI (STATS V2.0))
  *
  * NOVIDADES:
- * - Adiciona a lógica 'handleStartSimuladoAcertivo'.
- * - O código agora lê todas as questões, conta os temas
- * mais frequentes e gera um simulado de 80 questões.
- * - O botão "Simulado Acertivo" no menu é ativado.
- * - Refatora a lógica do título do quiz.
+ * - O Dashboard do Aluno agora mostra um "Relatório de Desempenho"
+ * detalhado por matéria, com barras de progresso visuais.
+ * - Isso usa os dados da subcoleção 'progresso' que já estamos guardando.
  * ========================================================
  */
 
@@ -38,7 +36,7 @@ let respostaConfirmada = false;
 let metaQuestoesDoDia = 0; 
 let cronometroInterval = null; 
 let quizReturnPath = 'menu'; 
-let quizTitle = 'Estudo'; // (NOVO) Título dinâmico para o quiz
+let quizTitle = 'Estudo'; 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -74,9 +72,8 @@ async function loadDashboard(user) {
 }
 
 // --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
+// (Sem alteração)
 appContent.addEventListener('click', async (e) => {
-    
-    // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         alternativaSelecionada = alternativaEl.dataset.alternativa;
@@ -88,13 +85,9 @@ appContent.addEventListener('click', async (e) => {
         alternativaEl.classList.remove('bg-gray-700');
         return; 
     }
-
     const actionButton = e.target.closest('[data-action]');
     if (!actionButton) return; 
-
     const action = actionButton.dataset.action; 
-    
-    // --- Ações de Admin ---
     if (action === 'show-create-question-form') { appContent.innerHTML = renderCreateQuestionForm(); }
     if (action === 'show-list-questions') { await renderListQuestionsUI(); }
     if (action === 'admin-voltar-painel') { loadDashboard(auth.currentUser); }
@@ -102,8 +95,6 @@ appContent.addEventListener('click', async (e) => {
         const docId = actionButton.dataset.id;
         await handleDeleteQuestion(docId, actionButton);
     }
-
-    // --- Ações de Aluno ---
     if (action === 'show-guided-planner') {
         quizReturnPath = 'menu'; 
         const user = auth.currentUser;
@@ -134,12 +125,9 @@ appContent.addEventListener('click', async (e) => {
         const edicao = actionButton.dataset.edicao;
         await handleStartSimulado(edicao);
     }
-    // (NOVO)
     if (action === 'start-simulado-acertivo') {
         await handleStartSimuladoAcertivo();
     }
-
-    // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { await handleConfirmarResposta(); }
     if (action === 'proxima-questao') { await handleProximaQuestao(); }
     if (action === 'sair-quiz') {
@@ -254,7 +242,7 @@ async function handleStartStudySession(materia) { /* ...código omitido... */
         quizIndexAtual = 0;           
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        quizTitle = `Estudo: ${materia.replace('_', ' ')}`; // Define o título
+        quizTitle = `Estudo: ${materia.replace('_', ' ')}`;
         renderQuiz(); 
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
@@ -303,7 +291,7 @@ async function handleProximaQuestao() { /* ...código omitido... */
     } else {
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        renderQuiz(); // Só chama, o título já está na memória
+        renderQuiz();
     }
 }
 async function handleConfirmarResposta() { /* ...código omitido... */ 
@@ -371,12 +359,56 @@ async function handleStartSimulado(edicao) { /* ...código omitido... */
         quizIndexAtual = 0;           
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        quizTitle = `Simulado ${edicao}`; // Define o Título
+        quizTitle = `Simulado ${edicao}`; 
         renderQuiz(5 * 60 * 60); 
     } catch (error) {
         console.error("Erro ao carregar simulado:", error);
         let returnButtonHtml = getVoltarButtonHtml(); 
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar simulado: ${error.message}</p>${returnButtonHtml}`;
+    }
+}
+async function handleStartSimuladoAcertivo() { /* ...código omitido... */ 
+    appContent.innerHTML = renderLoadingState(); 
+    try {
+        const themeCounts = new Map();
+        const questionsByTheme = new Map();
+        const questoesRef = collection(db, 'questoes');
+        const querySnapshot = await getDocs(questoesRef);
+        if (querySnapshot.empty) {
+            let returnButtonHtml = getVoltarButtonHtml(); 
+            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão encontrada na base de dados.</p>${returnButtonHtml}`;
+            return;
+        }
+        querySnapshot.forEach((doc) => {
+            const questao = doc.data();
+            const tema = questao.tema;
+            if (tema) {
+                const count = themeCounts.get(tema) || 0;
+                themeCounts.set(tema, count + 1);
+                const list = questionsByTheme.get(tema) || [];
+                list.push(questao);
+                questionsByTheme.set(tema, list);
+            }
+        });
+        const sortedThemes = [...themeCounts.entries()].sort((a, b) => b[1] - a[1]);
+        const simuladoQuestoes = [];
+        for (const [tema, count] of sortedThemes) {
+            const themeQuestions = questionsByTheme.get(tema);
+            simuladoQuestoes.push(...themeQuestions);
+            if (simuladoQuestoes.length >= 80) break; 
+        }
+        const finalExam = simuladoQuestoes.slice(0, 80); 
+        metaQuestoesDoDia = finalExam.length; 
+        quizQuestoes = finalExam; 
+        quizIndexAtual = 0;           
+        alternativaSelecionada = null;
+        respostaConfirmada = false;
+        quizTitle = 'Simulado Acertivo'; 
+        renderQuiz(5 * 60 * 60); 
+    } catch (error) {
+        console.error("Erro ao gerar Simulado Acertivo:", error);
+        let returnButtonHtml = getVoltarButtonHtml(); 
+        appContent.innerHTML = `<p class="text-red-400">Erro ao gerar simulado: ${error.message}</p>${returnButtonHtml}`;
     }
 }
 function startCronometro(duracaoSegundos) { /* ...código omitido... */ 
@@ -395,67 +427,6 @@ function startCronometro(duracaoSegundos) { /* ...código omitido... */
             cronometroEl.textContent = "Tempo Esgotado!";
         }
     }, 1000);
-}
-
-// ===============================================
-// (NOVO) LÓGICA DO SIMULADO ACERTIVO
-// ===============================================
-async function handleStartSimuladoAcertivo() {
-    appContent.innerHTML = renderLoadingState(); 
-    try {
-        // 1. Analisar Temas (Lê TODAS as questões)
-        const themeCounts = new Map();
-        const questionsByTheme = new Map();
-        const questoesRef = collection(db, 'questoes');
-        const querySnapshot = await getDocs(questoesRef);
-
-        if (querySnapshot.empty) {
-            let returnButtonHtml = getVoltarButtonHtml(); 
-            appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão encontrada na base de dados.</p>${returnButtonHtml}`;
-            return;
-        }
-
-        querySnapshot.forEach((doc) => {
-            const questao = doc.data();
-            const tema = questao.tema;
-            if (tema) {
-                // Adiciona ao contador
-                const count = themeCounts.get(tema) || 0;
-                themeCounts.set(tema, count + 1);
-                // Adiciona à lista de questões por tema
-                const list = questionsByTheme.get(tema) || [];
-                list.push(questao);
-                questionsByTheme.set(tema, list);
-            }
-        });
-        
-        // 2. Ordenar os temas por frequência
-        const sortedThemes = [...themeCounts.entries()].sort((a, b) => b[1] - a[1]);
-
-        // 3. Construir o simulado com 80 questões
-        const simuladoQuestoes = [];
-        for (const [tema, count] of sortedThemes) {
-            const themeQuestions = questionsByTheme.get(tema);
-            simuladoQuestoes.push(...themeQuestions);
-            if (simuladoQuestoes.length >= 80) break; // Para quando atingir 80
-        }
-        
-        const finalExam = simuladoQuestoes.slice(0, 80); // Garante 80 questões
-
-        // 4. Iniciar o Quiz
-        metaQuestoesDoDia = finalExam.length; 
-        quizQuestoes = finalExam; 
-        quizIndexAtual = 0;           
-        alternativaSelecionada = null;
-        respostaConfirmada = false;
-        quizTitle = 'Simulado Acertivo'; // Define o Título
-        renderQuiz(5 * 60 * 60); // 5 horas
-
-    } catch (error) {
-        console.error("Erro ao gerar Simulado Acertivo:", error);
-        let returnButtonHtml = getVoltarButtonHtml(); 
-        appContent.innerHTML = `<p class="text-red-400">Erro ao gerar simulado: ${error.message}</p>${returnButtonHtml}`;
-    }
 }
 
 
@@ -488,21 +459,47 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
         </div>
     `;
 }
-// (ATUALIZADO)
+
+// ===============================================
+// (ATUALIZADO) renderStudentDashboard_Menu
+// ===============================================
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
 
-    // --- (LÓGICA DE STATS) ---
+    // --- (LÓGICA DE STATS - agora com loop para as barras) ---
     const progressoRef = collection(db, 'users', auth.currentUser.uid, 'progresso');
     const progressoSnapshot = await getDocs(progressoRef);
+
     let totalResolvidasGlobal = 0;
     let totalAcertosGlobal = 0;
+    let materiaStatsHtml = ''; // (NOVO) String para as barras de progresso
+
     progressoSnapshot.forEach((doc) => {
+        const materia = doc.id;
         const data = doc.data();
-        totalResolvidasGlobal += data.totalResolvidas || 0;
-        totalAcertosGlobal += data.totalAcertos || 0;
+        const resolvidas = data.totalResolvidas || 0;
+        const acertos = data.totalAcertos || 0;
+
+        totalResolvidasGlobal += resolvidas;
+        totalAcertosGlobal += acertos;
+
+        const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
+
+        // (NOVO) Constrói o HTML da barra de progresso
+        materiaStatsHtml += `
+            <div class="mb-3">
+                <div class="flex justify-between mb-1">
+                    <span class="text-sm font-medium text-blue-300 capitalize">${materia.replace('_', ' ')}</span>
+                    <span class="text-sm font-medium text-gray-300">${taxa}% (${acertos}/${resolvidas})</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2.5">
+                    <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${taxa}%"></div>
+                </div>
+            </div>
+        `;
     });
+
     const taxaAcertoGlobal = (totalResolvidasGlobal > 0) 
         ? ((totalAcertosGlobal / totalResolvidasGlobal) * 100).toFixed(0) 
         : 0;
@@ -510,28 +507,44 @@ async function renderStudentDashboard_Menu(userData) {
 
     return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
+        
         <div class="grid md:grid-cols-3 gap-6 mb-8">
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3><p class="text-3xl font-bold text-white mt-2">${totalResolvidasGlobal}</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3><p class="text-3xl font-bold text-white mt-2">${taxaAcertoGlobal}%</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
         </div>
-        <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
+
         <div class="grid md:grid-cols-3 gap-6">
-            <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}">
-                <h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3>
-                <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p>
+            
+            <div class="md:col-span-2">
+                <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
+                <div class="grid md:grid-cols-3 gap-6">
+                    <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}">
+                        <h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3>
+                        <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p>
+                    </div>
+                    <div data-action="show-free-study" class="${cardStyle} ${cardHover}">
+                        <h3 class="text-2xl font-bold text-white mb-3">Estudo Livre</h3>
+                        <p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p>
+                    </div>
+                    <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}">
+                        <h3 class="text-2xl font-bold text-blue-400 mb-3">Simulados</h3>
+                        <p class="text-gray-300">Faça provas completas por edição ou por temas.</p>
+                    </div>
+                </div>
             </div>
-            <div data-action="show-free-study" class="${cardStyle} ${cardHover}">
-                <h3 class="text-2xl font-bold text-white mb-3">Estudo Livre</h3>
-                <p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p>
+
+            <div class="${cardStyle} md:col-span-1">
+                <h3 class="text-2xl font-bold text-white mb-6">Seu Desempenho</h3>
+                <div class="space-y-4">
+                    ${materiaStatsHtml || '<p class="text-gray-400">Responda a algumas questões para ver seu progresso aqui.</p>'}
+                </div>
             </div>
-            <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}">
-                <h3 class="text-2xl font-bold text-blue-400 mb-3">Simulados</h3>
-                <p class="text-gray-300">Faça provas completas por edição ou por temas.</p>
-            </div>
+
         </div>
     `;
 }
+
 // (Sem alteração)
 function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -664,11 +677,8 @@ async function renderListQuestionsUI() { /* ...código omitido... */
         appContent.innerHTML = `<p>Erro ao listar: ${error.message}</p>`;
     }
 }
-
-// ===============================================
-// (ATUALIZADO) renderSimuladosMenu
-// ===============================================
-function renderSimuladosMenu() {
+// (Sem alteração)
+function renderSimuladosMenu() { /* ...código omitido... */ 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
     const edicoes = ["OAB-38", "OAB-37", "OAB-36", "OAB-35"];
@@ -689,7 +699,6 @@ function renderSimuladosMenu() {
                         `).join('')}
                     </div>
                 </div>
-
                 <div data-action="start-simulado-acertivo" class="${cardStyle} ${cardHover}">
                     <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Acertivo</h3>
                     <p class="text-gray-400">Um simulado de 80 questões focado apenas nos temas mais cobrados.</p>
@@ -698,16 +707,12 @@ function renderSimuladosMenu() {
         </div>
     `;
 }
-
-// ===============================================
-// (ATUALIZADO) renderQuiz - usa 'quizTitle'
-// ===============================================
+// (Sem alteração)
 function renderQuiz(duracaoSegundos = null) {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
     const metaDoQuiz = (quizReturnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
-
     let cronometroHtml = '';
     if (duracaoSegundos) {
         cronometroHtml = `
@@ -716,7 +721,6 @@ function renderQuiz(duracaoSegundos = null) {
             </div>
         `;
     }
-
     appContent.innerHTML = `
         ${cronometroHtml}
         <h2 class="text-2xl font-bold text-white mb-2 capitalize">${quizTitle}</h2>
@@ -736,7 +740,6 @@ function renderQuiz(duracaoSegundos = null) {
             <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
         </div>
     `;
-
     if (duracaoSegundos) {
         startCronometro(duracaoSegundos);
     }
