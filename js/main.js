@@ -1,24 +1,13 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.14 - ASSISTENTE DE IA GEMINI)
+ * ARQUIVO: js/main.js (VERSÃO 5.15 - SIMPLIFICADA)
  *
  * NOVIDADES:
- * - Adiciona o placeholder da Chave de API do Gemini.
- * - Adiciona o botão "Pedir Ajuda (IA)" ao Relatório de Desempenho.
- * - Adiciona a lógica 'handleGetAiHelp' para chamar a API do Gemini.
- * - Adiciona o ecrã para mostrar a resposta da IA.
+ * - Toda a lógica, botões e chamadas da API do Gemini AI
+ * foram removidos para focar nas funcionalidades
+ * principais do planner.
  * ========================================================
  */
-
-// ========================================================
-// !!!!!!!!!!!!!!!!!!! IMPORTANTE !!!!!!!!!!!!!!!!!!!!!!!!!!
-// COLE A SUA *NOVA* CHAVE SECRETA DA API DO GEMINI AQUI:
-// (Esta chave ficará pública no seu GitHub,
-// o seu limite de orçamento é a sua proteção)
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-const GEMINI_API_KEY = "AIzaSyCrDKh7SVXehYjBlqyclYk8-N_QRBi7s7E";
-// ========================================================
-
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
 import { auth, db } from './auth.js'; 
@@ -40,8 +29,8 @@ const CICLO_DE_ESTUDOS = [
 ];
 
 // --- [ PARTE 4: VARIÁVEIS DE ESTADO DO QUIZ ] ---
-let quizQuestoes = [];          
-let quizIndexAtual = 0;         
+let quizQuestoes = [];        
+let quizIndexAtual = 0;       
 let alternativaSelecionada = null; 
 let respostaConfirmada = false;  
 let metaQuestoesDoDia = 0; 
@@ -54,7 +43,7 @@ onAuthStateChanged(auth, (user) => {
     if (user) {
         loadDashboard(user);
     } else {
-        appContent.innerHTML = '';
+        appContent.innerHTML = ''; 
         if (cronometroInterval) clearInterval(cronometroInterval); 
     }
 });
@@ -146,12 +135,8 @@ appContent.addEventListener('click', async (e) => {
     if (action === 'start-simulado-acertivo') {
         await handleStartSimuladoAcertivo();
     }
-    // (NOVO) Ação da IA
-    if (action === 'get-ai-help') {
-        const materia = actionButton.dataset.materia;
-        const taxa = actionButton.dataset.taxa;
-        await handleGetAiHelp(materia, taxa);
-    }
+    
+    // (Ação da IA foi removida daqui)
 
     // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { await handleConfirmarResposta(); }
@@ -265,7 +250,7 @@ async function handleStartStudySession(materia) { /* ...código omitido... */
             metaQuestoesDoDia = questoesArray.length;
         }
         quizQuestoes = questoesArray; 
-        quizIndexAtual = 0;           
+        quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = `Estudo: ${materia.replace('_', ' ')}`;
@@ -382,7 +367,7 @@ async function handleStartSimulado(edicao) { /* ...código omitido... */
         }
         metaQuestoesDoDia = questoesArray.length; 
         quizQuestoes = questoesArray; 
-        quizIndexAtual = 0;           
+        quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = `Simulado ${edicao}`; 
@@ -426,7 +411,7 @@ async function handleStartSimuladoAcertivo() { /* ...código omitido... */
         const finalExam = simuladoQuestoes.slice(0, 80); 
         metaQuestoesDoDia = finalExam.length; 
         quizQuestoes = finalExam; 
-        quizIndexAtual = 0;           
+        quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = 'Simulado Acertivo'; 
@@ -456,62 +441,8 @@ function startCronometro(duracaoSegundos) { /* ...código omitido... */
 }
 
 // ===============================================
-// (NOVO) LÓGICA DA IA (GEMINI)
+// (LÓGICA DA IA FOI REMOVIDA)
 // ===============================================
-async function handleGetAiHelp(materia, taxa) {
-    appContent.innerHTML = renderLoadingState();
-
-    // 1. Criar o Prompt
-    const prompt = `
-        Aja como um tutor especialista na Prova da OAB (Brasil).
-        Um aluno está com dificuldade na matéria de "${materia}". A taxa de acerto dele(a) é de apenas ${taxa}%.
-        
-        Por favor, forneça, em português do Brasil:
-        1.  Uma breve (um parágrafo) mensagem de encorajamento.
-        2.  Uma lista (bullet points) dos 3 (três) temas mais importantes dentro de "${materia}" que este aluno deve focar para melhorar a sua nota.
-        3.  Uma breve explicação (uma frase) para cada tema.
-        
-        Seja conciso, direto ao ponto e motivacional.
-    `;
-
-    // 2. Chamar a API do Gemini (Modelo Flash, que é rápido e barato)
-    const url = `https-proxy.runo.dev/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
-    
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{ "text": prompt }]
-                }]
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`Erro na API: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        
-        // 3. Extrair o texto da resposta
-        if (!data.candidates || !data.candidates[0].content.parts[0].text) {
-             throw new Error("Resposta inesperada da API.");
-        }
-        
-        const aiResponseText = data.candidates[0].content.parts[0].text;
-
-        // 4. Mostrar a resposta
-        appContent.innerHTML = renderAiHelpResponse(materia, aiResponseText);
-
-    } catch (error) {
-        console.error("Erro ao chamar a IA:", error);
-        let returnButtonHtml = getVoltarButtonHtml(); 
-        appContent.innerHTML = `<p class="text-red-400">Erro ao contactar o Assistente de IA: ${error.message}</p>${returnButtonHtml}`;
-    }
-}
 
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
@@ -545,7 +476,7 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
 }
 
 // ===============================================
-// (ATUALIZADO) renderStudentDashboard_Menu (Adiciona o botão da IA)
+// (ATUALIZADO) renderStudentDashboard_Menu (Botão da IA removido)
 // ===============================================
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -563,20 +494,9 @@ async function renderStudentDashboard_Menu(userData) {
         const data = doc.data();
         const resolvidas = data.totalResolvidas || 0;
         const acertos = data.totalAcertos || 0;
-        totalResolvidasGlobal += resolvidas;
-        totalAcertosGlobal += acertos;
         const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
 
-        // (NOVO) Botão da IA (só aparece se o aluno estiver com < 100%)
-        let aiButtonHtml = '';
-        if (resolvidas > 0 && taxa < 100) {
-            aiButtonHtml = `
-                <button data-action="get-ai-help" data-materia="${materia}" data-taxa="${taxa}"
-                        class="text-xs bg-blue-800 text-blue-100 font-semibold px-2 py-1 rounded-full hover:bg-blue-700 transition mt-2">
-                    Pedir Ajuda (IA)
-                </button>
-            `;
-        }
+        // (Botão da IA foi removido daqui)
 
         materiaStatsHtml += `
             <div class="mb-3">
@@ -587,8 +507,7 @@ async function renderStudentDashboard_Menu(userData) {
                 <div class="w-full bg-gray-700 rounded-full h-2.5">
                     <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${taxa}%"></div>
                 </div>
-                ${aiButtonHtml}
-            </div>
+                </div>
         `;
     });
 
@@ -724,7 +643,7 @@ async function renderListQuestionsUI() { /* ...código omitido... */
     let listHtml = "";
     try {
         const questoesRef = collection(db, 'questoes');
-        const querySnapshot = await getDocs(questoesRef);
+        const querySnapshot = await getDocs(questesRef);
         if (querySnapshot.empty) {
             listHtml = "<p class='text-gray-400'>Nenhuma questão encontrada no Firestore.</p>";
         } else {
@@ -824,27 +743,5 @@ function renderQuiz(duracaoSegundos = null) {
 }
 
 // ===============================================
-// (NOVO) Ecrã de Resposta da IA
+// (Ecrã de Resposta da IA foi removido)
 // ===============================================
-function renderAiHelpResponse(materia, aiText) {
-    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
-    
-    // Converte o Markdown básico (como * e -) em HTML
-    const formattedText = aiText
-        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-blue-300">$1</strong>') // Negrito
-        .replace(/\n\s*-\s(.*?)/g, '<li class="ml-4 list-disc">$1</li>') // Itens de lista
-        .replace(/\n/g, '<br>'); // Novas linhas
-
-    return `
-        <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Dashboard</button>
-        <div class="${cardStyle}">
-            <h2 class="text-2xl font-bold text-white mb-4">
-                Assistente IA - Foco em <span class="capitalize">${materia.replace('_', ' ')}</span>
-            </h2>
-            <div class="text-gray-300 space-y-4 leading-relaxed">
-                ${formattedText}
-            </div>
-        </div>
-    `;
-}
-
