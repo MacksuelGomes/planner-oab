@@ -1,11 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.15 - SIMPLIFICADA)
+ * ARQUIVO: js/main.js (VERSÃO 5.16 - Reset de Desempenho)
  *
  * NOVIDADES:
- * - Toda a lógica, botões e chamadas da API do Gemini AI
- * foram removidos para focar nas funcionalidades
- * principais do planner.
+ * - Adiciona o botão "Resetar todo o desempenho"
+ * no painel do aluno.
+ * - Adiciona a lógica 'handleResetarDesempenho' para
+ * apagar a subcoleção 'progresso' do aluno.
  * ========================================================
  */
 
@@ -136,7 +137,10 @@ appContent.addEventListener('click', async (e) => {
         await handleStartSimuladoAcertivo();
     }
     
-    // (Ação da IA foi removida daqui)
+    // (NOVO) Ação de Resetar
+    if (action === 'resetar-desempenho') {
+        await handleResetarDesempenho();
+    }
 
     // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { await handleConfirmarResposta(); }
@@ -207,6 +211,42 @@ async function handleDeleteQuestion(docId, button) { /* ...código omitido... */
 
 
 // --- [ PARTE 9: LÓGICA DE ALUNO ] ---
+
+// (NOVA FUNÇÃO)
+async function handleResetarDesempenho() {
+    // 1. Confirmação
+    if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso? Esta ação não pode ser desfeita e todas as suas estatísticas voltarão a zero.")) {
+        return;
+    }
+
+    appContent.innerHTML = renderLoadingState(); // Mostra "A carregar..."
+
+    try {
+        const user = auth.currentUser;
+        if (!user) return;
+
+        // 2. Referência para a subcoleção 'progresso'
+        const progressoRef = collection(db, 'users', user.uid, 'progresso');
+        
+        // 3. Obter todos os documentos
+        const querySnapshot = await getDocs(progressoRef);
+        
+        // 4. Deletar todos os documentos em paralelo
+        const deletePromises = [];
+        querySnapshot.forEach((doc) => {
+            deletePromises.push(deleteDoc(doc.ref));
+        });
+        await Promise.all(deletePromises);
+
+        // 5. Recarregar o dashboard
+        loadDashboard(user);
+
+    } catch (error) {
+        console.error("Erro ao resetar desempenho:", error);
+        appContent.innerHTML = `<p class="text-red-400">Erro ao resetar seu progresso: ${error.message}</p>`;
+    }
+}
+
 // (Sem alteração)
 async function handleSavePlannerSetup(form) { /* ...código omitido... */ 
     const meta = form.metaDiaria.value;
@@ -440,10 +480,6 @@ function startCronometro(duracaoSegundos) { /* ...código omitido... */
     }, 1000);
 }
 
-// ===============================================
-// (LÓGICA DA IA FOI REMOVIDA)
-// ===============================================
-
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
@@ -476,7 +512,7 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
 }
 
 // ===============================================
-// (ATUALIZADO) renderStudentDashboard_Menu (Botão da IA removido)
+// (ATUALIZADO) renderStudentDashboard_Menu (Botão de Reset Adicionado)
 // ===============================================
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -494,9 +530,9 @@ async function renderStudentDashboard_Menu(userData) {
         const data = doc.data();
         const resolvidas = data.totalResolvidas || 0;
         const acertos = data.totalAcertos || 0;
+        totalResolvidasGlobal += resolvidas; // (MOVIMENTADO PARA CÁ)
+        totalAcertosGlobal += acertos;     // (MOVIMENTADO PARA CÁ)
         const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
-
-        // (Botão da IA foi removido daqui)
 
         materiaStatsHtml += `
             <div class="mb-3">
@@ -507,7 +543,7 @@ async function renderStudentDashboard_Menu(userData) {
                 <div class="w-full bg-gray-700 rounded-full h-2.5">
                     <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${taxa}%"></div>
                 </div>
-                </div>
+            </div>
         `;
     });
 
@@ -537,6 +573,14 @@ async function renderStudentDashboard_Menu(userData) {
                 <div class="space-y-4">
                     ${materiaStatsHtml || '<p class="text-gray-400">Responda a algumas questões para ver seu progresso aqui.</p>'}
                 </div>
+                
+                <div class="mt-6 border-t border-gray-700 pt-4">
+                    <button data-action="resetar-desempenho" 
+                            class="w-full text-sm text-center text-red-400 hover:text-red-300 transition">
+                        Resetar todo o desempenho
+                    </button>
+                </div>
+
             </div>
         </div>
     `;
@@ -643,7 +687,7 @@ async function renderListQuestionsUI() { /* ...código omitido... */
     let listHtml = "";
     try {
         const questoesRef = collection(db, 'questoes');
-        const querySnapshot = await getDocs(questesRef);
+        const querySnapshot = await getDocs(questoesRef);
         if (querySnapshot.empty) {
             listHtml = "<p class='text-gray-400'>Nenhuma questão encontrada no Firestore.</p>";
         } else {
@@ -741,7 +785,3 @@ function renderQuiz(duracaoSegundos = null) {
         startCronometro(duracaoSegundos);
     }
 }
-
-// ===============================================
-// (Ecrã de Resposta da IA foi removido)
-// ===============================================
