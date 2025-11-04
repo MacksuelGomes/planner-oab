@@ -1,12 +1,10 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.16 - Reset de Desempenho)
+ * ARQUIVO: js/main.js (VERSÃO 5.17 - Reset Completo)
  *
  * NOVIDADES:
- * - Adiciona o botão "Resetar todo o desempenho"
- * no painel do aluno.
- * - Adiciona a lógica 'handleResetarDesempenho' para
- * apagar a subcoleção 'progresso' do aluno.
+ * - A função 'handleResetarDesempenho' agora também
+ * reseta o 'cicloIndex' do Planner Guiado para 0.
  * ========================================================
  */
 
@@ -137,7 +135,7 @@ appContent.addEventListener('click', async (e) => {
         await handleStartSimuladoAcertivo();
     }
     
-    // (NOVO) Ação de Resetar
+    // Ação de Resetar
     if (action === 'resetar-desempenho') {
         await handleResetarDesempenho();
     }
@@ -212,7 +210,9 @@ async function handleDeleteQuestion(docId, button) { /* ...código omitido... */
 
 // --- [ PARTE 9: LÓGICA DE ALUNO ] ---
 
-// (NOVA FUNÇÃO)
+// ===============================================
+// (ATUALIZADO) handleResetarDesempenho (reseta cicloIndex)
+// ===============================================
 async function handleResetarDesempenho() {
     // 1. Confirmação
     if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso? Esta ação não pode ser desfeita e todas as suas estatísticas voltarão a zero.")) {
@@ -225,20 +225,28 @@ async function handleResetarDesempenho() {
         const user = auth.currentUser;
         if (!user) return;
 
-        // 2. Referência para a subcoleção 'progresso'
-        const progressoRef = collection(db, 'users', user.uid, 'progresso');
+        // 2. Referência para o documento do usuário
+        const userDocRef = doc(db, 'users', user.uid);
+
+        // 3. Referência para a subcoleção 'progresso'
+        const progressoRef = collection(userDocRef, 'progresso');
         
-        // 3. Obter todos os documentos
+        // 4. Obter todos os documentos de progresso
         const querySnapshot = await getDocs(progressoRef);
         
-        // 4. Deletar todos os documentos em paralelo
+        // 5. Deletar todos os documentos em paralelo
         const deletePromises = [];
         querySnapshot.forEach((doc) => {
             deletePromises.push(deleteDoc(doc.ref));
         });
         await Promise.all(deletePromises);
 
-        // 5. Recarregar o dashboard
+        // 6. (NOVO) Resetar o cicloIndex no documento principal do usuário
+        await updateDoc(userDocRef, {
+            cicloIndex: 0
+        });
+
+        // 7. Recarregar o dashboard
         loadDashboard(user);
 
     } catch (error) {
@@ -511,9 +519,7 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
     `;
 }
 
-// ===============================================
-// (ATUALIZADO) renderStudentDashboard_Menu (Botão de Reset Adicionado)
-// ===============================================
+// (ATUALIZADO) renderStudentDashboard_Menu (Corrigido cálculo de stats)
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
@@ -530,8 +536,8 @@ async function renderStudentDashboard_Menu(userData) {
         const data = doc.data();
         const resolvidas = data.totalResolvidas || 0;
         const acertos = data.totalAcertos || 0;
-        totalResolvidasGlobal += resolvidas; // (MOVIMENTADO PARA CÁ)
-        totalAcertosGlobal += acertos;     // (MOVIMENTADO PARA CÁ)
+        totalResolvidasGlobal += resolvidas; // (Corrigido)
+        totalAcertosGlobal += acertos;     // (Corrigido)
         const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
 
         materiaStatsHtml += `
@@ -643,7 +649,7 @@ function renderPlannerSetupForm() { /* ...código omitido... */
                     <input type="number" id="metaDiaria" name="metaDiaria" min="1" value="20" required class="${inputStyle}">
                 </div>
                 <div>
-                    <button type="submit" class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 transition duration-300">
+                    <button type-="submit" class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 transition duration-300">
                         Salvar e Iniciar Planner
                     </button>
                 </div>
