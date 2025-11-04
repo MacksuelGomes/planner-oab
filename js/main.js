@@ -1,12 +1,13 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.18 - Sequência de Estudos)
+ * ARQUIVO: js/main.js (VERSÃO 5.19 - Caderno de Erros)
  *
  * NOVIDADES:
- * - Adiciona lógica na 'loadDashboard' para calcular
- * o total de dias de estudo e a sequência de dias.
- * - Atualiza o 'renderStudentDashboard_Menu' para
- * mostrar 4 cards: Questões, Acerto, Dias e Sequência 🔥
+ * - Adiciona o card "Caderno de Erros" ao painel.
+ * - Na 'handleConfirmarResposta', questões erradas agora
+ * são salvas na subcoleção 'questoes_erradas' do usuário.
+ * - Nova função 'handleStartCadernoErros' para iniciar
+ * um quiz apenas com as questões erradas.
  * ========================================================
  */
 
@@ -49,9 +50,7 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-// ===============================================
-// (ATUALIZADO) loadDashboard (Adiciona lógica de Sequência)
-// ===============================================
+// --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
 async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     try {
@@ -62,7 +61,7 @@ async function loadDashboard(user) {
         if (userDoc.exists()) {
             let userData = userDoc.data();
             
-            // --- (NOVA LÓGICA DE SEQUÊNCIA) ---
+            // --- (LÓGICA DE SEQUÊNCIA) ---
             const hojeStr = getFormattedDate(new Date());
             const ultimoLoginData = userData.ultimoLogin ? userData.ultimoLogin.toDate() : null;
             const ultimoLoginStr = ultimoLoginData ? getFormattedDate(ultimoLoginData) : null;
@@ -158,6 +157,11 @@ appContent.addEventListener('click', async (e) => {
         quizReturnPath = 'simulados'; 
         appContent.innerHTML = renderSimuladosMenu();
     }
+    // (NOVO) Ação do Caderno de Erros
+    if (action === 'show-caderno-erros') {
+        quizReturnPath = 'erros'; // Define um novo caminho de retorno
+        await handleStartCadernoErros();
+    }
     if (action === 'student-voltar-menu') {
         loadDashboard(auth.currentUser); 
     }
@@ -172,8 +176,6 @@ appContent.addEventListener('click', async (e) => {
     if (action === 'start-simulado-acertivo') {
         await handleStartSimuladoAcertivo();
     }
-    
-    // Ação de Resetar
     if (action === 'resetar-desempenho') {
         await handleResetarDesempenho();
     }
@@ -186,6 +188,8 @@ appContent.addEventListener('click', async (e) => {
             appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
         } else if (quizReturnPath === 'simulados') {
             appContent.innerHTML = renderSimuladosMenu();
+        } else if (quizReturnPath === 'erros') { // (NOVO) Retorno do caderno de erros
+            loadDashboard(auth.currentUser);
         } else {
             loadDashboard(auth.currentUser); 
         }
@@ -248,7 +252,7 @@ async function handleDeleteQuestion(docId, button) { /* ...código omitido... */
 
 // --- [ PARTE 9: LÓGICA DE ALUNO ] ---
 
-// (NOVA FUNÇÃO AUXILIAR)
+// (Função auxiliar)
 function getFormattedDate(date) {
     const year = date.getFullYear();
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
@@ -258,43 +262,36 @@ function getFormattedDate(date) {
 
 // (Sem alteração)
 async function handleResetarDesempenho() {
-    // 1. Confirmação
     if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso? Esta ação não pode ser desfeita e todas as suas estatísticas voltarão a zero.")) {
         return;
     }
-
-    appContent.innerHTML = renderLoadingState(); // Mostra "A carregar..."
-
+    appContent.innerHTML = renderLoadingState(); 
     try {
         const user = auth.currentUser;
         if (!user) return;
-
-        // 2. Referência para o documento do usuário
         const userDocRef = doc(db, 'users', user.uid);
-
-        // 3. Referência para a subcoleção 'progresso'
         const progressoRef = collection(userDocRef, 'progresso');
-        
-        // 4. Obter todos os documentos de progresso
         const querySnapshot = await getDocs(progressoRef);
-        
-        // 5. Deletar todos os documentos em paralelo
         const deletePromises = [];
         querySnapshot.forEach((doc) => {
             deletePromises.push(deleteDoc(doc.ref));
         });
         await Promise.all(deletePromises);
+        
+        // (NOVO) Também apaga o caderno de erros
+        const errosRef = collection(userDocRef, 'questoes_erradas');
+        const errosSnapshot = await getDocs(errosRef);
+        errosSnapshot.forEach((doc) => {
+            deletePromises.push(deleteDoc(doc.ref));
+        });
+        await Promise.all(deletePromises);
 
-        // 6. Resetar o cicloIndex e stats de dias no documento principal do usuário
         await updateDoc(userDocRef, {
             cicloIndex: 0,
-            totalDiasEstudo: 0, // (NOVO) Reseta total de dias
-            sequenciaDias: 0   // (NOVO) Reseta sequência
+            totalDiasEstudo: 0,
+            sequenciaDias: 0
         });
-
-        // 7. Recarregar o dashboard
         loadDashboard(user);
-
     } catch (error) {
         console.error("Erro ao resetar desempenho:", error);
         appContent.innerHTML = `<p class="text-red-400">Erro ao resetar seu progresso: ${error.message}</p>`;
@@ -360,6 +357,7 @@ async function handleProximaQuestao() { /* ...código omitido... */
     if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
         let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
         let textoBotao = "Voltar ao Estudo Livre"; 
+        
         if (quizReturnPath === 'menu') { 
             textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões de ${quizQuestoes[0].materia}!`;
             textoBotao = "Voltar ao Menu Principal";
@@ -368,6 +366,12 @@ async function handleProximaQuestao() { /* ...código omitido... */
             textoFinal = `Você completou o simulado de ${quizQuestoes.length} questões.`;
             textoBotao = "Voltar ao Menu de Simulados";
         }
+        // (NOVO) Mensagem de conclusão do Caderno de Erros
+        if (quizReturnPath === 'erros') {
+            textoFinal = `Você completou sua revisão de ${quizQuestoes.length} questões.`;
+            textoBotao = "Voltar ao Menu Principal";
+        }
+
         if (cronometroInterval) clearInterval(cronometroInterval); 
         appContent.innerHTML = `
             <div class="text-center">
@@ -399,21 +403,40 @@ async function handleProximaQuestao() { /* ...código omitido... */
         renderQuiz();
     }
 }
-async function handleConfirmarResposta() { /* ...código omitido... */ 
+
+// ===============================================
+// (ATUALIZADO) handleConfirmarResposta (Salva erros)
+// ===============================================
+async function handleConfirmarResposta() { 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
         return;
     }
     if (respostaConfirmada) return; 
     respostaConfirmada = true;
+    
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const correta = questaoAtual.correta;
     const acertou = alternativaSelecionada === correta;
+    
     try {
+        // 1. Salva o progresso (acerto/erro)
         await salvarProgresso(questaoAtual.materia, acertou);
+
+        // 2. (NOVO) Se errou, salva no caderno de erros
+        if (!acertou && questaoAtual.id) {
+            const user = auth.currentUser;
+            // Usamos o ID da própria questão como ID do documento
+            // para evitar salvar a mesma questão errada várias vezes.
+            const erroRef = doc(db, 'users', user.uid, 'questoes_erradas', questaoAtual.id);
+            await setDoc(erroRef, questaoAtual);
+        }
+
     } catch (error) {
-        console.error("Erro ao salvar progresso:", error);
+        console.error("Erro ao salvar progresso ou erro:", error);
     }
+
+    // 3. Mostra o gabarito visual
     const alternativasEls = document.querySelectorAll('[data-alternativa]');
     alternativasEls.forEach(el => {
         const alt = el.dataset.alternativa;
@@ -427,12 +450,16 @@ async function handleConfirmarResposta() { /* ...código omitido... */
             el.classList.add('opacity-50');
         }
     });
+
+    // 4. Mostra o comentário
     const comentarioEl = document.getElementById('quiz-comentario');
     comentarioEl.innerHTML = `
         <h3 class="text-xl font-bold text-white mb-2">Gabarito & Comentário</h3>
         <p class="text-gray-300">${questaoAtual.comentario || 'Nenhum comentário disponível.'}</p>
     `;
     comentarioEl.classList.remove('hidden');
+
+    // 5. Atualiza o botão
     const botaoConfirmar = document.getElementById('quiz-botao-confirmar');
     botaoConfirmar.textContent = 'Próxima Questão';
     botaoConfirmar.dataset.action = 'proxima-questao';
@@ -516,6 +543,48 @@ async function handleStartSimuladoAcertivo() { /* ...código omitido... */
         appContent.innerHTML = `<p class="text-red-400">Erro ao gerar simulado: ${error.message}</p>${returnButtonHtml}`;
     }
 }
+
+// ===============================================
+// (NOVA FUNÇÃO) handleStartCadernoErros
+// ===============================================
+async function handleStartCadernoErros() {
+    appContent.innerHTML = renderLoadingState(); 
+    try {
+        const user = auth.currentUser;
+        const questoesRef = collection(db, 'users', user.uid, 'questoes_erradas');
+        const querySnapshot = await getDocs(questoesRef);
+        
+        const questoesArray = [];
+        querySnapshot.forEach((doc) => {
+            questoesArray.push(doc.data());
+        });
+
+        if (questoesArray.length === 0) {
+            let returnButtonHtml = getVoltarButtonHtml(); 
+            appContent.innerHTML = `
+                <div class="text-center">
+                    <h2 class="text-2xl font-bold text-white mb-4">Parabéns!</h2>
+                    <p class="text-gray-300 mb-6">Seu caderno de erros está vazio. Você ainda não errou nenhuma questão.</p>
+                    ${returnButtonHtml}
+                </div>
+            `;
+            return;
+        }
+        
+        metaQuestoesDoDia = questoesArray.length; // A meta é revisar todos os erros
+        quizQuestoes = questoesArray; 
+        quizIndexAtual = 0;        
+        alternativaSelecionada = null;
+        respostaConfirmada = false;
+        quizTitle = `Caderno de Erros`;
+        renderQuiz(); 
+    } catch (error) {
+        console.error("Erro ao carregar caderno de erros:", error);
+        let returnButtonHtml = getVoltarButtonHtml(); 
+        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar seus erros: ${error.message}</p>${returnButtonHtml}`;
+    }
+}
+
 function startCronometro(duracaoSegundos) { /* ...código omitido... */ 
     if (cronometroInterval) clearInterval(cronometroInterval); 
     const cronometroEl = document.getElementById('quiz-cronometro');
@@ -537,12 +606,16 @@ function startCronometro(duracaoSegundos) { /* ...código omitido... */
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
-// (Sem alteração)
+// ===============================================
+// (ATUALIZADO) getVoltarButtonHtml (adiciona 'erros')
+// ===============================================
 function getVoltarButtonHtml() {
     if (quizReturnPath === 'free-study') {
         return `<button data-action="show-free-study" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Estudo Livre</button>`;
     } else if (quizReturnPath === 'simulados') {
          return `<button data-action="show-simulados-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar aos Simulados</button>`;
+    } else if (quizReturnPath === 'erros') {
+         return `<button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
     } else {
          return `<button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
     }
@@ -566,7 +639,7 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
 }
 
 // ===============================================
-// (ATUALIZADO) renderStudentDashboard_Menu (4 cards de stats)
+// (ATUALIZADO) renderStudentDashboard_Menu (Adiciona Card de Erros)
 // ===============================================
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -606,7 +679,6 @@ async function renderStudentDashboard_Menu(userData) {
         : 0;
     // --- (FIM DA LÓGICA DE STATS) ---
 
-    // (NOVO) Lógica para os cards de dias
     const totalDias = userData.totalDiasEstudo || 0;
     const sequencia = userData.sequenciaDias || 0;
 
@@ -623,10 +695,17 @@ async function renderStudentDashboard_Menu(userData) {
         <div class="grid md:grid-cols-3 gap-6">
             <div class="md:col-span-2">
                 <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
-                <div class="grid md:grid-cols-3 gap-6">
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3><p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p></div>
                     <div data-action="show-free-study" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-white mb-3">Estudo Livre</h3><p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p></div>
                     <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-blue-400 mb-3">Simulados</h3><p class="text-gray-300">Faça provas completas por edição ou por temas.</p></div>
+                    
+                    <div data-action="show-caderno-erros" class="${cardStyle} ${cardHover} border-red-500 hover:border-red-400">
+                        <h3 class="text-2xl font-bold text-red-400 mb-3">Caderno de Erros</h3>
+                        <p class="text-gray-300">Revise apenas as questões que você já errou.</p>
+                    </div>
+
                 </div>
             </div>
             <div class="${cardStyle} md:col-span-1">
@@ -641,7 +720,6 @@ async function renderStudentDashboard_Menu(userData) {
                         Resetar todo o desempenho
                     </button>
                 </div>
-
             </div>
         </div>
     `;
