@@ -1,12 +1,11 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.20 - Caderno de Anotações)
+ * ARQUIVO: js/main.js (VERSÃO 5.21 - Dashboard Minimalista)
  *
  * NOVIDADES:
- * - Adiciona o card "Caderno de Anotações" ao painel.
- * - Adiciona nova tela para listar matérias (renderAnotacoesMenu).
- * - Adiciona nova tela de edição (renderAnotacoesEditor)
- * e função para salvar (handleSalvarAnotacao).
+ * - A função 'renderStudentDashboard_Menu' foi totalmente
+ * redesenhada para um layout minimalista, vertical e
+ * com ícones, similar ao 'index.html'.
  * ========================================================
  */
 
@@ -28,7 +27,6 @@ const CICLO_DE_ESTUDOS = [
     "processo_trabalho", "empresarial", 
     "etica", "constitucional", "civil", "processo_civil", "penal"
 ];
-// (NOVO) Lista de matérias para o Caderno de Anotações
 const TODAS_MATERIAS = [
     "etica", "civil", "processo_civil", "penal", "processo_penal", 
     "constitucional", "administrativo", "tributario", "empresarial", 
@@ -45,7 +43,7 @@ let metaQuestoesDoDia = 0;
 let cronometroInterval = null; 
 let quizReturnPath = 'menu'; 
 let quizTitle = 'Estudo'; 
-let anotacaoDebounceTimer = null; // (NOVO) Timer para salvar anotações
+let anotacaoDebounceTimer = null; // Timer para salvar anotações
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -117,20 +115,26 @@ async function loadDashboard(user) {
 // --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
 appContent.addEventListener('click', async (e) => {
     
+    // Procura por 'data-action' no elemento pai
+    const actionButton = e.target.closest('[data-action]');
+
     // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
-        alternativaSelecionada = alternativaEl.dataset.alternativa;
-        document.querySelectorAll('[data-alternativa]').forEach(el => {
-            el.classList.remove('bg-blue-700', 'border-blue-400');
-            el.classList.add('bg-gray-700');
-        });
-        alternativaEl.classList.add('bg-blue-700', 'border-blue-400');
-        alternativaEl.classList.remove('bg-gray-700');
-        return; 
+        // Se o clique foi numa alternativa E não foi num botão de ação,
+        // processa a alternativa.
+        if (!actionButton) { 
+            alternativaSelecionada = alternativaEl.dataset.alternativa;
+            document.querySelectorAll('[data-alternativa]').forEach(el => {
+                el.classList.remove('bg-blue-700', 'border-blue-400');
+                el.classList.add('bg-gray-700');
+            });
+            alternativaEl.classList.add('bg-blue-700', 'border-blue-400');
+            alternativaEl.classList.remove('bg-gray-700');
+            return; 
+        }
     }
 
-    const actionButton = e.target.closest('[data-action]');
     if (!actionButton) return; 
 
     const action = actionButton.dataset.action; 
@@ -168,7 +172,6 @@ appContent.addEventListener('click', async (e) => {
         quizReturnPath = 'erros';
         await handleStartCadernoErros();
     }
-    // (NOVO) Ações do Caderno de Anotações
     if (action === 'show-anotacoes-menu') {
         appContent.innerHTML = renderAnotacoesMenu();
     }
@@ -218,7 +221,6 @@ appContent.addEventListener('submit', async (e) => {
         await handleSavePlannerSetup(e.target);
     }
 });
-// (NOVO) Evento 'input' para salvar anotações automaticamente
 appContent.addEventListener('input', (e) => {
     if (e.target.id === 'anotacoes-textarea') {
         const statusEl = document.getElementById('anotacoes-status');
@@ -226,7 +228,6 @@ appContent.addEventListener('input', (e) => {
         const conteudo = e.target.value;
         statusEl.textContent = 'A guardar...';
         
-        // Debounce: Aguarda 1.5s após o usuário parar de digitar para salvar
         if (anotacaoDebounceTimer) clearTimeout(anotacaoDebounceTimer);
         
         anotacaoDebounceTimer = setTimeout(async () => {
@@ -251,10 +252,8 @@ async function handleCreateQuestionSubmit(form) {
             alternativas: { A: formData.get('alt_a'), B: formData.get('alt_b'), C: formData.get('alt_c'), D: formData.get('alt_d') },
             correta: formData.get('correta'),
             comentario: formData.get('comentario'),
-            // (NOVO) ID único para a questão, essencial para o caderno de erros
             id: `${formData.get('materia').toUpperCase()}-${Date.now().toString().slice(-5)}` 
         };
-        // (ALTERADO) Salva o documento usando o ID único como referência
         const questaoRef = doc(db, 'questoes', questaoData.id);
         await setDoc(questaoRef, questaoData);
 
@@ -293,7 +292,6 @@ function getFormattedDate(date) {
     return `${year}-${month}-${day}`;
 }
 
-// (Atualizado - Reseta também anotações)
 async function handleResetarDesempenho() {
     if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso? Esta ação não pode ser desfeita e todas as suas estatísticas voltarão a zero.")) {
         return;
@@ -316,7 +314,7 @@ async function handleResetarDesempenho() {
         const errosSnapshot = await getDocs(errosRef);
         errosSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
 
-        // (NOVO) Apaga anotações
+        // Apaga anotações
         const anotacoesRef = collection(userDocRef, 'anotacoes');
         const anotacoesSnapshot = await getDocs(anotacoesRef);
         anotacoesSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
@@ -338,7 +336,6 @@ async function handleResetarDesempenho() {
     }
 }
 
-// (Sem alteração)
 async function handleSavePlannerSetup(form) {
     const meta = form.metaDiaria.value;
     const botao = form.querySelector('button');
@@ -366,7 +363,6 @@ async function handleStartStudySession(materia) {
         const querySnapshot = await getDocs(q);
         const questoesArray = [];
         querySnapshot.forEach((doc) => {
-            // (IMPORTANTE) Adiciona o ID do documento ao objeto da questão
             questoesArray.push({ ...doc.data(), docId: doc.id });
         });
         if (questoesArray.length === 0) {
@@ -459,16 +455,13 @@ async function handleConfirmarResposta() {
         await salvarProgresso(questaoAtual.materia, acertou);
 
         const user = auth.currentUser;
-        // (ALTERADO) Usa o ID do documento (docId) que buscamos
         const questaoId = questaoAtual.docId || questaoAtual.id; 
         
         if (questaoId) {
             const erroRef = doc(db, 'users', user.uid, 'questoes_erradas', questaoId);
             if (!acertou) {
-                // Se errou, salva no caderno de erros
                 await setDoc(erroRef, questaoAtual);
             } else if (quizReturnPath === 'erros') {
-                // (NOVO) Se acertou E estava no caderno de erros, remove do caderno
                 await deleteDoc(erroRef);
             }
         }
@@ -590,7 +583,6 @@ async function handleStartCadernoErros() {
         
         const questoesArray = [];
         querySnapshot.forEach((doc) => {
-            // (IMPORTANTE) Adiciona o ID do documento aos dados da questão
             questoesArray.push({ ...doc.data(), docId: doc.id });
         });
 
@@ -620,20 +612,16 @@ async function handleStartCadernoErros() {
     }
 }
 
-// ===============================================
-// (NOVAS FUNÇÕES - Caderno de Anotações)
-// ===============================================
 async function handleSalvarAnotacao(materia, conteudo) {
     if (!materia) return;
     try {
         const user = auth.currentUser;
-        // Salva a anotação usando o nome da matéria como ID
         const anotacaoRef = doc(db, 'users', user.uid, 'anotacoes', materia);
         await setDoc(anotacaoRef, {
             materia: materia,
             conteudo: conteudo,
             atualizadoEm: new Date()
-        }, { merge: true }); // 'merge: true' evita sobrescrever outros campos se existirem
+        }, { merge: true });
     } catch (error) {
         console.error("Erro ao salvar anotação:", error);
         const statusEl = document.getElementById('anotacoes-status');
@@ -653,7 +641,6 @@ async function renderAnotacoesEditor(materia) {
         }
     } catch (error) {
         console.error("Erro ao carregar anotação:", error);
-        // Não bloqueia o usuário, apenas começa com o editor vazio
     }
 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -676,7 +663,6 @@ async function renderAnotacoesEditor(materia) {
         </div>
     `;
 }
-// ===============================================
 
 function startCronometro(duracaoSegundos) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
@@ -726,10 +712,13 @@ function renderAdminDashboard(userData) {
     `;
 }
 
-// (ATUALIZADO) renderStudentDashboard_Menu (Adiciona Card de Anotações)
+// ===============================================
+// (ATUALIZADO) renderStudentDashboard_Menu (Novo Layout Minimalista)
+// ===============================================
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
-    const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
+    // Estilo para os itens do novo menu
+    const menuItemStyle = "bg-gray-800 rounded-lg shadow-xl border border-gray-700 transition duration-300 ease-in-out transform hover:border-blue-400 hover:scale-[1.02] cursor-pointer";
 
     // --- (LÓGICA DE STATS) ---
     const progressoRef = collection(db, 'users', auth.currentUser.uid, 'progresso');
@@ -763,10 +752,9 @@ async function renderStudentDashboard_Menu(userData) {
     const taxaAcertoGlobal = (totalResolvidasGlobal > 0) 
         ? ((totalAcertosGlobal / totalResolvidasGlobal) * 100).toFixed(0) 
         : 0;
-    // --- (FIM DA LÓGICA DE STATS) ---
-
     const totalDias = userData.totalDiasEstudo || 0;
     const sequencia = userData.sequenciaDias || 0;
+    // --- (FIM DA LÓGICA DE STATS) ---
 
     return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
@@ -779,26 +767,77 @@ async function renderStudentDashboard_Menu(userData) {
         </div>
 
         <div class="grid md:grid-cols-3 gap-6">
+            
             <div class="md:col-span-2">
-                <h2 class="text-2xl font-bold text-white mb-6">Escolha o seu modo de estudo:</h2>
+                <h2 class="text-2xl font-bold text-white mb-6">O que vamos fazer hoje?</h2>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3><p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p></div>
-                    <div data-action="show-free-study" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-white mb-3">Estudo Livre</h3><p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p></div>
-                    <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-blue-400 mb-3">Simulados</h3><p class="text-gray-300">Faça provas completas por edição ou por temas.</p></div>
-                    <div data-action="show-caderno-erros" class="${cardStyle} ${cardHover} border-red-500 hover:border-red-400">
-                        <h3 class="text-2xl font-bold text-red-400 mb-3">Caderno de Erros</h3>
-                        <p class="text-gray-300">Revise apenas as questões que você já errou.</p>
-                    </div>
-                </div>
-                
-                <h2 class="text-2xl font-bold text-white mb-6">Ferramentas de Estudo:</h2>
-                <div data-action="show-anotacoes-menu" class="${cardStyle} ${cardHover} border-yellow-500 hover:border-yellow-400">
-                    <h3 class="text-2xl font-bold text-yellow-400 mb-3">Caderno de Anotações</h3>
-                    <p class="text-gray-300">Crie e reveja as suas anotações pessoais por matéria.</p>
-                </div>
+                <div class="space-y-6">
 
+                    <div data-action="show-guided-planner" class="${menuItemStyle} p-6 flex items-center">
+                        <div class="mr-6 flex-shrink-0">
+                            <svg class="w-12 h-12 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-blue-400 mb-1">Planner Guiado</h3>
+                            <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p>
+                        </div>
+                    </div>
+
+                    <div data-action="show-caderno-erros" class="${menuItemStyle} p-6 flex items-center border-red-500 hover:border-red-400">
+                        <div class="mr-6 flex-shrink-0">
+                            <svg class="w-12 h-12 text-red-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-red-400 mb-1">Caderno de Erros</h3>
+                            <p class="text-gray-300">Revise apenas as questões que você já errou.</p>
+                        </div>
+                    </div>
+
+                    <div data-action="show-anotacoes-menu" class="${menuItemStyle} p-6 flex items-center border-yellow-500 hover:border-yellow-400">
+                        <div class="mr-6 flex-shrink-0">
+                            <svg class="w-12 h-12 text-yellow-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18c-2.305 0-4.408.867-6 2.292m0-14.25v14.25" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-yellow-400 mb-1">Caderno de Anotações</h3>
+                            <p class="text-gray-300">Crie e reveja as suas anotações pessoais por matéria.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div data-action="show-free-study" class="${menuItemStyle} p-6 flex items-center">
+                            <div class="mr-5 flex-shrink-0">
+                                <svg class="w-10 h-10 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-white mb-1">Estudo Livre</h3>
+                                <p class="text-gray-400 text-sm">Escolha qualquer matéria.</p>
+                            </div>
+                        </div>
+
+                        <div data-action="show-simulados-menu" class="${menuItemStyle} p-6 flex items-center">
+                            <div class="mr-5 flex-shrink-0">
+                                <svg class="w-10 h-10 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-white mb-1">Simulados</h3>
+                                <p class="text-gray-400 text-sm">Faça provas completas.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
             </div>
+
             <div class="${cardStyle} md:col-span-1">
                 <h3 class="text-2xl font-bold text-white mb-6">Seu Desempenho</h3>
                 <div class="space-y-4">
@@ -837,10 +876,6 @@ function renderPlanner_TarefaDoDia(userData) {
         </div>
     `;
 }
-
-// ===============================================
-// (NOVA FUNÇÃO) renderAnotacoesMenu
-// ===============================================
 function renderAnotacoesMenu() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     return `
@@ -859,8 +894,6 @@ function renderAnotacoesMenu() {
         </div>
     `;
 }
-
-// (Sem alteração)
 function renderFreeStudyDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
@@ -943,7 +976,7 @@ async function renderListQuestionsUI() {
         } else {
             querySnapshot.forEach((doc) => {
                 const questao = doc.data();
-                const docId = doc.id; // (IMPORTANTE) Usar o ID do documento
+                const docId = doc.id; 
                 listHtml += `
                     <div id="item-${docId}" class="p-4 bg-gray-900 rounded-lg flex items-center justify-between">
                         <div>
@@ -971,7 +1004,7 @@ async function renderListQuestionsUI() {
 function renderSimuladosMenu() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
-    const edicoes = ["OAB-38", "OAB-37", "OAB-36", "OAB-35"]; // Pode adicionar mais aqui
+    const edicoes = ["OAB-38", "OAB-37", "OAB-36", "OAB-35"]; 
     return `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle}">
