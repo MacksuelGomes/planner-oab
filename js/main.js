@@ -1,10 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.17 - Reset Completo)
+ * ARQUIVO: js/main.js (VERSÃO 5.18 - Sequência de Estudos)
  *
  * NOVIDADES:
- * - A função 'handleResetarDesempenho' agora também
- * reseta o 'cicloIndex' do Planner Guiado para 0.
+ * - Adiciona lógica na 'loadDashboard' para calcular
+ * o total de dias de estudo e a sequência de dias.
+ * - Atualiza o 'renderStudentDashboard_Menu' para
+ * mostrar 4 cards: Questões, Acerto, Dias e Sequência 🔥
  * ========================================================
  */
 
@@ -47,15 +49,51 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-// --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
+// ===============================================
+// (ATUALIZADO) loadDashboard (Adiciona lógica de Sequência)
+// ===============================================
 async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     try {
         appContent.innerHTML = renderLoadingState();
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
+        
         if (userDoc.exists()) {
-            const userData = userDoc.data();
+            let userData = userDoc.data();
+            
+            // --- (NOVA LÓGICA DE SEQUÊNCIA) ---
+            const hojeStr = getFormattedDate(new Date());
+            const ultimoLoginData = userData.ultimoLogin ? userData.ultimoLogin.toDate() : null;
+            const ultimoLoginStr = ultimoLoginData ? getFormattedDate(ultimoLoginData) : null;
+
+            if (ultimoLoginStr !== hojeStr) {
+                // É o primeiro login do dia, vamos atualizar as stats
+                const ontem = new Date();
+                ontem.setDate(ontem.getDate() - 1);
+                const ontemStr = getFormattedDate(ontem);
+
+                const totalDiasEstudo = (userData.totalDiasEstudo || 0) + 1;
+                let sequenciaDias = 1; // Default
+                
+                if (ultimoLoginStr === ontemStr) {
+                    // O último login foi ontem, continua a sequência
+                    sequenciaDias = (userData.sequenciaDias || 0) + 1;
+                }
+                
+                // Atualiza o documento no Firestore
+                const novosDados = {
+                    totalDiasEstudo: totalDiasEstudo,
+                    sequenciaDias: sequenciaDias,
+                    ultimoLogin: new Date()
+                };
+                await updateDoc(userDocRef, novosDados);
+
+                // Atualiza o objeto 'userData' local para renderizar com os dados novos
+                userData = { ...userData, ...novosDados };
+            }
+            // --- (FIM DA LÓGICA DE SEQUÊNCIA) ---
+
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
@@ -210,9 +248,15 @@ async function handleDeleteQuestion(docId, button) { /* ...código omitido... */
 
 // --- [ PARTE 9: LÓGICA DE ALUNO ] ---
 
-// ===============================================
-// (ATUALIZADO) handleResetarDesempenho (reseta cicloIndex)
-// ===============================================
+// (NOVA FUNÇÃO AUXILIAR)
+function getFormattedDate(date) {
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+// (Sem alteração)
 async function handleResetarDesempenho() {
     // 1. Confirmação
     if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso? Esta ação não pode ser desfeita e todas as suas estatísticas voltarão a zero.")) {
@@ -241,9 +285,11 @@ async function handleResetarDesempenho() {
         });
         await Promise.all(deletePromises);
 
-        // 6. (NOVO) Resetar o cicloIndex no documento principal do usuário
+        // 6. Resetar o cicloIndex e stats de dias no documento principal do usuário
         await updateDoc(userDocRef, {
-            cicloIndex: 0
+            cicloIndex: 0,
+            totalDiasEstudo: 0, // (NOVO) Reseta total de dias
+            sequenciaDias: 0   // (NOVO) Reseta sequência
         });
 
         // 7. Recarregar o dashboard
@@ -519,7 +565,9 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
     `;
 }
 
-// (ATUALIZADO) renderStudentDashboard_Menu (Corrigido cálculo de stats)
+// ===============================================
+// (ATUALIZADO) renderStudentDashboard_Menu (4 cards de stats)
+// ===============================================
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
@@ -536,8 +584,8 @@ async function renderStudentDashboard_Menu(userData) {
         const data = doc.data();
         const resolvidas = data.totalResolvidas || 0;
         const acertos = data.totalAcertos || 0;
-        totalResolvidasGlobal += resolvidas; // (Corrigido)
-        totalAcertosGlobal += acertos;     // (Corrigido)
+        totalResolvidasGlobal += resolvidas;
+        totalAcertosGlobal += acertos;
         const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
 
         materiaStatsHtml += `
@@ -558,13 +606,20 @@ async function renderStudentDashboard_Menu(userData) {
         : 0;
     // --- (FIM DA LÓGICA DE STATS) ---
 
+    // (NOVO) Lógica para os cards de dias
+    const totalDias = userData.totalDiasEstudo || 0;
+    const sequencia = userData.sequenciaDias || 0;
+
     return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
-        <div class="grid md:grid-cols-3 gap-6 mb-8">
+        
+        <div class="grid md:grid-cols-4 gap-6 mb-8">
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3><p class="text-3xl font-bold text-white mt-2">${totalResolvidasGlobal}</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3><p class="text-3xl font-bold text-white mt-2">${taxaAcertoGlobal}%</p></div>
-            <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Dias de Estudo</h3><p class="text-3xl font-bold text-white mt-2">0</p></div>
+            <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Total de Dias</h3><p class="text-3xl font-bold text-white mt-2">${totalDias}</p></div>
+            <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Sequência 🔥</h3><p class="text-3xl font-bold text-white mt-2">${sequencia}</p></div>
         </div>
+
         <div class="grid md:grid-cols-3 gap-6">
             <div class="md:col-span-2">
                 <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
@@ -649,7 +704,7 @@ function renderPlannerSetupForm() { /* ...código omitido... */
                     <input type="number" id="metaDiaria" name="metaDiaria" min="1" value="20" required class="${inputStyle}">
                 </div>
                 <div>
-                    <button type-="submit" class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 transition duration-300">
+                    <button type="submit" class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 transition duration-300">
                         Salvar e Iniciar Planner
                     </button>
                 </div>
