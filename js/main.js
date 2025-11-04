@@ -1,13 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.19 - Caderno de Erros)
+ * ARQUIVO: js/main.js (VERSÃO 5.20 - Caderno de Anotações)
  *
  * NOVIDADES:
- * - Adiciona o card "Caderno de Erros" ao painel.
- * - Na 'handleConfirmarResposta', questões erradas agora
- * são salvas na subcoleção 'questoes_erradas' do usuário.
- * - Nova função 'handleStartCadernoErros' para iniciar
- * um quiz apenas com as questões erradas.
+ * - Adiciona o card "Caderno de Anotações" ao painel.
+ * - Adiciona nova tela para listar matérias (renderAnotacoesMenu).
+ * - Adiciona nova tela de edição (renderAnotacoesEditor)
+ * e função para salvar (handleSalvarAnotacao).
  * ========================================================
  */
 
@@ -29,6 +28,13 @@ const CICLO_DE_ESTUDOS = [
     "processo_trabalho", "empresarial", 
     "etica", "constitucional", "civil", "processo_civil", "penal"
 ];
+// (NOVO) Lista de matérias para o Caderno de Anotações
+const TODAS_MATERIAS = [
+    "etica", "civil", "processo_civil", "penal", "processo_penal", 
+    "constitucional", "administrativo", "tributario", "empresarial", 
+    "trabalho", "processo_trabalho"
+];
+
 
 // --- [ PARTE 4: VARIÁVEIS DE ESTADO DO QUIZ ] ---
 let quizQuestoes = [];        
@@ -39,6 +45,7 @@ let metaQuestoesDoDia = 0;
 let cronometroInterval = null; 
 let quizReturnPath = 'menu'; 
 let quizTitle = 'Estudo'; 
+let anotacaoDebounceTimer = null; // (NOVO) Timer para salvar anotações
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -157,10 +164,17 @@ appContent.addEventListener('click', async (e) => {
         quizReturnPath = 'simulados'; 
         appContent.innerHTML = renderSimuladosMenu();
     }
-    // (NOVO) Ação do Caderno de Erros
     if (action === 'show-caderno-erros') {
-        quizReturnPath = 'erros'; // Define um novo caminho de retorno
+        quizReturnPath = 'erros';
         await handleStartCadernoErros();
+    }
+    // (NOVO) Ações do Caderno de Anotações
+    if (action === 'show-anotacoes-menu') {
+        appContent.innerHTML = renderAnotacoesMenu();
+    }
+    if (action === 'show-anotacoes-editor') {
+        const materia = actionButton.dataset.materia;
+        await renderAnotacoesEditor(materia);
     }
     if (action === 'student-voltar-menu') {
         loadDashboard(auth.currentUser); 
@@ -188,7 +202,7 @@ appContent.addEventListener('click', async (e) => {
             appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
         } else if (quizReturnPath === 'simulados') {
             appContent.innerHTML = renderSimuladosMenu();
-        } else if (quizReturnPath === 'erros') { // (NOVO) Retorno do caderno de erros
+        } else if (quizReturnPath === 'erros') {
             loadDashboard(auth.currentUser);
         } else {
             loadDashboard(auth.currentUser); 
@@ -204,11 +218,27 @@ appContent.addEventListener('submit', async (e) => {
         await handleSavePlannerSetup(e.target);
     }
 });
+// (NOVO) Evento 'input' para salvar anotações automaticamente
+appContent.addEventListener('input', (e) => {
+    if (e.target.id === 'anotacoes-textarea') {
+        const statusEl = document.getElementById('anotacoes-status');
+        const materia = e.target.dataset.materia;
+        const conteudo = e.target.value;
+        statusEl.textContent = 'A guardar...';
+        
+        // Debounce: Aguarda 1.5s após o usuário parar de digitar para salvar
+        if (anotacaoDebounceTimer) clearTimeout(anotacaoDebounceTimer);
+        
+        anotacaoDebounceTimer = setTimeout(async () => {
+            await handleSalvarAnotacao(materia, conteudo);
+            statusEl.textContent = 'Guardado!';
+        }, 1500);
+    }
+});
 
 
 // --- [ PARTE 8: LÓGICA DE ADMIN ] ---
-// (Sem alteração)
-async function handleCreateQuestionSubmit(form) { /* ...código omitido... */ 
+async function handleCreateQuestionSubmit(form) {
     const statusEl = document.getElementById('form-status');
     statusEl.textContent = 'A guardar...';
     try {
@@ -221,10 +251,13 @@ async function handleCreateQuestionSubmit(form) { /* ...código omitido... */
             alternativas: { A: formData.get('alt_a'), B: formData.get('alt_b'), C: formData.get('alt_c'), D: formData.get('alt_d') },
             correta: formData.get('correta'),
             comentario: formData.get('comentario'),
-            id: `${formData.get('materia').toUpperCase()}-${Date.now().toString().slice(-5)}`
+            // (NOVO) ID único para a questão, essencial para o caderno de erros
+            id: `${formData.get('materia').toUpperCase()}-${Date.now().toString().slice(-5)}` 
         };
-        const questoesRef = collection(db, 'questoes');
-        await addDoc(questoesRef, questaoData);
+        // (ALTERADO) Salva o documento usando o ID único como referência
+        const questaoRef = doc(db, 'questoes', questaoData.id);
+        await setDoc(questaoRef, questaoData);
+
         statusEl.textContent = 'Questão guardada com sucesso!';
         statusEl.className = 'text-green-400 text-sm mt-4';
         form.reset();
@@ -234,7 +267,7 @@ async function handleCreateQuestionSubmit(form) { /* ...código omitido... */
         statusEl.className = 'text-red-400 text-sm mt-4';
     }
 }
-async function handleDeleteQuestion(docId, button) { /* ...código omitido... */ 
+async function handleDeleteQuestion(docId, button) {
     if (!confirm('Tem a certeza que quer apagar esta questão? Esta ação não pode ser desfeita.')) { return; }
     button.textContent = 'A apagar...';
     button.disabled = true;
@@ -260,7 +293,7 @@ function getFormattedDate(date) {
     return `${year}-${month}-${day}`;
 }
 
-// (Sem alteração)
+// (Atualizado - Reseta também anotações)
 async function handleResetarDesempenho() {
     if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso? Esta ação não pode ser desfeita e todas as suas estatísticas voltarão a zero.")) {
         return;
@@ -270,27 +303,34 @@ async function handleResetarDesempenho() {
         const user = auth.currentUser;
         if (!user) return;
         const userDocRef = doc(db, 'users', user.uid);
-        const progressoRef = collection(userDocRef, 'progresso');
-        const querySnapshot = await getDocs(progressoRef);
-        const deletePromises = [];
-        querySnapshot.forEach((doc) => {
-            deletePromises.push(deleteDoc(doc.ref));
-        });
-        await Promise.all(deletePromises);
         
-        // (NOVO) Também apaga o caderno de erros
+        const deletePromises = [];
+
+        // Apaga progresso
+        const progressoRef = collection(userDocRef, 'progresso');
+        const progressoSnapshot = await getDocs(progressoRef);
+        progressoSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
+        
+        // Apaga caderno de erros
         const errosRef = collection(userDocRef, 'questoes_erradas');
         const errosSnapshot = await getDocs(errosRef);
-        errosSnapshot.forEach((doc) => {
-            deletePromises.push(deleteDoc(doc.ref));
-        });
+        errosSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
+
+        // (NOVO) Apaga anotações
+        const anotacoesRef = collection(userDocRef, 'anotacoes');
+        const anotacoesSnapshot = await getDocs(anotacoesRef);
+        anotacoesSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
+        
+        // Executa todas as deleções
         await Promise.all(deletePromises);
 
+        // Reseta o documento principal
         await updateDoc(userDocRef, {
             cicloIndex: 0,
             totalDiasEstudo: 0,
             sequenciaDias: 0
         });
+        
         loadDashboard(user);
     } catch (error) {
         console.error("Erro ao resetar desempenho:", error);
@@ -299,7 +339,7 @@ async function handleResetarDesempenho() {
 }
 
 // (Sem alteração)
-async function handleSavePlannerSetup(form) { /* ...código omitido... */ 
+async function handleSavePlannerSetup(form) {
     const meta = form.metaDiaria.value;
     const botao = form.querySelector('button');
     botao.textContent = 'A guardar...';
@@ -318,7 +358,7 @@ async function handleSavePlannerSetup(form) { /* ...código omitido... */
         botao.textContent = 'Erro ao salvar!';
     }
 }
-async function handleStartStudySession(materia) { /* ...código omitido... */ 
+async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const questoesRef = collection(db, 'questoes');
@@ -326,7 +366,8 @@ async function handleStartStudySession(materia) { /* ...código omitido... */
         const querySnapshot = await getDocs(q);
         const questoesArray = [];
         querySnapshot.forEach((doc) => {
-            questoesArray.push(doc.data());
+            // (IMPORTANTE) Adiciona o ID do documento ao objeto da questão
+            questoesArray.push({ ...doc.data(), docId: doc.id });
         });
         if (questoesArray.length === 0) {
             let returnButtonHtml = getVoltarButtonHtml(); 
@@ -352,7 +393,7 @@ async function handleStartStudySession(materia) { /* ...código omitido... */
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>${returnButtonHtml}`;
     }
 }
-async function handleProximaQuestao() { /* ...código omitido... */ 
+async function handleProximaQuestao() {
     quizIndexAtual++; 
     if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
         let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
@@ -366,7 +407,6 @@ async function handleProximaQuestao() { /* ...código omitido... */
             textoFinal = `Você completou o simulado de ${quizQuestoes.length} questões.`;
             textoBotao = "Voltar ao Menu de Simulados";
         }
-        // (NOVO) Mensagem de conclusão do Caderno de Erros
         if (quizReturnPath === 'erros') {
             textoFinal = `Você completou sua revisão de ${quizQuestoes.length} questões.`;
             textoBotao = "Voltar ao Menu Principal";
@@ -403,10 +443,6 @@ async function handleProximaQuestao() { /* ...código omitido... */
         renderQuiz();
     }
 }
-
-// ===============================================
-// (ATUALIZADO) handleConfirmarResposta (Salva erros)
-// ===============================================
 async function handleConfirmarResposta() { 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
@@ -420,23 +456,26 @@ async function handleConfirmarResposta() {
     const acertou = alternativaSelecionada === correta;
     
     try {
-        // 1. Salva o progresso (acerto/erro)
         await salvarProgresso(questaoAtual.materia, acertou);
 
-        // 2. (NOVO) Se errou, salva no caderno de erros
-        if (!acertou && questaoAtual.id) {
-            const user = auth.currentUser;
-            // Usamos o ID da própria questão como ID do documento
-            // para evitar salvar a mesma questão errada várias vezes.
-            const erroRef = doc(db, 'users', user.uid, 'questoes_erradas', questaoAtual.id);
-            await setDoc(erroRef, questaoAtual);
+        const user = auth.currentUser;
+        // (ALTERADO) Usa o ID do documento (docId) que buscamos
+        const questaoId = questaoAtual.docId || questaoAtual.id; 
+        
+        if (questaoId) {
+            const erroRef = doc(db, 'users', user.uid, 'questoes_erradas', questaoId);
+            if (!acertou) {
+                // Se errou, salva no caderno de erros
+                await setDoc(erroRef, questaoAtual);
+            } else if (quizReturnPath === 'erros') {
+                // (NOVO) Se acertou E estava no caderno de erros, remove do caderno
+                await deleteDoc(erroRef);
+            }
         }
-
     } catch (error) {
         console.error("Erro ao salvar progresso ou erro:", error);
     }
 
-    // 3. Mostra o gabarito visual
     const alternativasEls = document.querySelectorAll('[data-alternativa]');
     alternativasEls.forEach(el => {
         const alt = el.dataset.alternativa;
@@ -450,21 +489,17 @@ async function handleConfirmarResposta() {
             el.classList.add('opacity-50');
         }
     });
-
-    // 4. Mostra o comentário
     const comentarioEl = document.getElementById('quiz-comentario');
     comentarioEl.innerHTML = `
         <h3 class="text-xl font-bold text-white mb-2">Gabarito & Comentário</h3>
         <p class="text-gray-300">${questaoAtual.comentario || 'Nenhum comentário disponível.'}</p>
     `;
     comentarioEl.classList.remove('hidden');
-
-    // 5. Atualiza o botão
     const botaoConfirmar = document.getElementById('quiz-botao-confirmar');
     botaoConfirmar.textContent = 'Próxima Questão';
     botaoConfirmar.dataset.action = 'proxima-questao';
 }
-async function salvarProgresso(materia, acertou) { /* ...código omitido... */ 
+async function salvarProgresso(materia, acertou) {
     const user = auth.currentUser;
     if (!user) return; 
     const progressoRef = doc(db, 'users', user.uid, 'progresso', materia);
@@ -473,14 +508,16 @@ async function salvarProgresso(materia, acertou) { /* ...código omitido... */
         totalAcertos: acertou ? increment(1) : increment(0)
     }, { merge: true });
 }
-async function handleStartSimulado(edicao) { /* ...código omitido... */ 
+async function handleStartSimulado(edicao) {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const questoesRef = collection(db, 'questoes');
         const q = query(questoesRef, where("edicao", "==", edicao));
         const querySnapshot = await getDocs(q);
         const questoesArray = [];
-        querySnapshot.forEach((doc) => { questoesArray.push(doc.data()); });
+        querySnapshot.forEach((doc) => {
+            questoesArray.push({ ...doc.data(), docId: doc.id });
+        });
         if (questoesArray.length === 0) {
             let returnButtonHtml = getVoltarButtonHtml(); 
             appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão da "${edicao}" encontrada.</p>${returnButtonHtml}`;
@@ -499,7 +536,7 @@ async function handleStartSimulado(edicao) { /* ...código omitido... */
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar simulado: ${error.message}</p>${returnButtonHtml}`;
     }
 }
-async function handleStartSimuladoAcertivo() { /* ...código omitido... */ 
+async function handleStartSimuladoAcertivo() {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const themeCounts = new Map();
@@ -512,7 +549,7 @@ async function handleStartSimuladoAcertivo() { /* ...código omitido... */
             return;
         }
         querySnapshot.forEach((doc) => {
-            const questao = doc.data();
+            const questao = { ...doc.data(), docId: doc.id };
             const tema = questao.tema;
             if (tema) {
                 const count = themeCounts.get(tema) || 0;
@@ -544,9 +581,6 @@ async function handleStartSimuladoAcertivo() { /* ...código omitido... */
     }
 }
 
-// ===============================================
-// (NOVA FUNÇÃO) handleStartCadernoErros
-// ===============================================
 async function handleStartCadernoErros() {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -556,7 +590,8 @@ async function handleStartCadernoErros() {
         
         const questoesArray = [];
         querySnapshot.forEach((doc) => {
-            questoesArray.push(doc.data());
+            // (IMPORTANTE) Adiciona o ID do documento aos dados da questão
+            questoesArray.push({ ...doc.data(), docId: doc.id });
         });
 
         if (questoesArray.length === 0) {
@@ -564,14 +599,14 @@ async function handleStartCadernoErros() {
             appContent.innerHTML = `
                 <div class="text-center">
                     <h2 class="text-2xl font-bold text-white mb-4">Parabéns!</h2>
-                    <p class="text-gray-300 mb-6">Seu caderno de erros está vazio. Você ainda não errou nenhuma questão.</p>
+                    <p class="text-gray-300 mb-6">O seu caderno de erros está vazio.</p>
                     ${returnButtonHtml}
                 </div>
             `;
             return;
         }
         
-        metaQuestoesDoDia = questoesArray.length; // A meta é revisar todos os erros
+        metaQuestoesDoDia = questoesArray.length;
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;        
         alternativaSelecionada = null;
@@ -581,11 +616,69 @@ async function handleStartCadernoErros() {
     } catch (error) {
         console.error("Erro ao carregar caderno de erros:", error);
         let returnButtonHtml = getVoltarButtonHtml(); 
-        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar seus erros: ${error.message}</p>${returnButtonHtml}`;
+        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar os seus erros: ${error.message}</p>${returnButtonHtml}`;
     }
 }
 
-function startCronometro(duracaoSegundos) { /* ...código omitido... */ 
+// ===============================================
+// (NOVAS FUNÇÕES - Caderno de Anotações)
+// ===============================================
+async function handleSalvarAnotacao(materia, conteudo) {
+    if (!materia) return;
+    try {
+        const user = auth.currentUser;
+        // Salva a anotação usando o nome da matéria como ID
+        const anotacaoRef = doc(db, 'users', user.uid, 'anotacoes', materia);
+        await setDoc(anotacaoRef, {
+            materia: materia,
+            conteudo: conteudo,
+            atualizadoEm: new Date()
+        }, { merge: true }); // 'merge: true' evita sobrescrever outros campos se existirem
+    } catch (error) {
+        console.error("Erro ao salvar anotação:", error);
+        const statusEl = document.getElementById('anotacoes-status');
+        if(statusEl) statusEl.textContent = "Erro ao guardar.";
+    }
+}
+
+async function renderAnotacoesEditor(materia) {
+    appContent.innerHTML = renderLoadingState();
+    let conteudoAtual = "";
+    try {
+        const user = auth.currentUser;
+        const anotacaoRef = doc(db, 'users', user.uid, 'anotacoes', materia);
+        const docSnap = await getDoc(anotacaoRef);
+        if (docSnap.exists()) {
+            conteudoAtual = docSnap.data().conteudo || "";
+        }
+    } catch (error) {
+        console.error("Erro ao carregar anotação:", error);
+        // Não bloqueia o usuário, apenas começa com o editor vazio
+    }
+
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    appContent.innerHTML = `
+        <button data-action="show-anotacoes-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar às Matérias</button>
+        <div class="${cardStyle}">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-white capitalize">
+                    Anotações: ${materia.replace('_', ' ')}
+                </h2>
+                <span id="anotacoes-status" class="text-sm text-gray-400"></span>
+            </div>
+            <p class="text-gray-300 mb-4">
+                Use o espaço abaixo para as suas anotações. O texto é guardado automaticamente.
+            </p>
+            <textarea id="anotacoes-textarea" data-materia="${materia}" rows="20"
+                      class="w-full p-4 bg-gray-900 text-gray-200 rounded-md border border-gray-700 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Escreva aqui os seus 'flashcards', resumos de artigos, mnemónicos, etc..."
+            >${conteudoAtual}</textarea>
+        </div>
+    `;
+}
+// ===============================================
+
+function startCronometro(duracaoSegundos) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     const cronometroEl = document.getElementById('quiz-cronometro');
     if (!cronometroEl) return;
@@ -606,9 +699,6 @@ function startCronometro(duracaoSegundos) { /* ...código omitido... */
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
-// ===============================================
-// (ATUALIZADO) getVoltarButtonHtml (adiciona 'erros')
-// ===============================================
 function getVoltarButtonHtml() {
     if (quizReturnPath === 'free-study') {
         return `<button data-action="show-free-study" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Estudo Livre</button>`;
@@ -620,12 +710,10 @@ function getVoltarButtonHtml() {
          return `<button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
     }
 }
-// (Sem alteração)
-function renderLoadingState() { /* ...código omitido... */ 
+function renderLoadingState() {
     return `<p class="text-gray-400">A carregar...</p>`;
 }
-// (Sem alteração)
-function renderAdminDashboard(userData) { /* ...código omitido... */ 
+function renderAdminDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     return `
         <h1 class="text-3xl font-bold text-white mb-2">Painel Administrativo</h1>
@@ -638,9 +726,7 @@ function renderAdminDashboard(userData) { /* ...código omitido... */
     `;
 }
 
-// ===============================================
-// (ATUALIZADO) renderStudentDashboard_Menu (Adiciona Card de Erros)
-// ===============================================
+// (ATUALIZADO) renderStudentDashboard_Menu (Adiciona Card de Anotações)
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
@@ -694,24 +780,29 @@ async function renderStudentDashboard_Menu(userData) {
 
         <div class="grid md:grid-cols-3 gap-6">
             <div class="md:col-span-2">
-                <h2 class="text-2xl font-bold text-white mb-6">Escolha seu modo de estudo:</h2>
+                <h2 class="text-2xl font-bold text-white mb-6">Escolha o seu modo de estudo:</h2>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div data-action="show-guided-planner" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-blue-400 mb-3">Planner Guiado</h3><p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p></div>
                     <div data-action="show-free-study" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-white mb-3">Estudo Livre</h3><p class="text-gray-300">Escolha qualquer matéria, a qualquer momento, sem metas.</p></div>
                     <div data-action="show-simulados-menu" class="${cardStyle} ${cardHover}"><h3 class="text-2xl font-bold text-blue-400 mb-3">Simulados</h3><p class="text-gray-300">Faça provas completas por edição ou por temas.</p></div>
-                    
                     <div data-action="show-caderno-erros" class="${cardStyle} ${cardHover} border-red-500 hover:border-red-400">
                         <h3 class="text-2xl font-bold text-red-400 mb-3">Caderno de Erros</h3>
                         <p class="text-gray-300">Revise apenas as questões que você já errou.</p>
                     </div>
-
                 </div>
+                
+                <h2 class="text-2xl font-bold text-white mb-6">Ferramentas de Estudo:</h2>
+                <div data-action="show-anotacoes-menu" class="${cardStyle} ${cardHover} border-yellow-500 hover:border-yellow-400">
+                    <h3 class="text-2xl font-bold text-yellow-400 mb-3">Caderno de Anotações</h3>
+                    <p class="text-gray-300">Crie e reveja as suas anotações pessoais por matéria.</p>
+                </div>
+
             </div>
             <div class="${cardStyle} md:col-span-1">
                 <h3 class="text-2xl font-bold text-white mb-6">Seu Desempenho</h3>
                 <div class="space-y-4">
-                    ${materiaStatsHtml || '<p class="text-gray-400">Responda a algumas questões para ver seu progresso aqui.</p>'}
+                    ${materiaStatsHtml || '<p class="text-gray-400">Responda a algumas questões para ver o seu progresso aqui.</p>'}
                 </div>
                 
                 <div class="mt-6 border-t border-gray-700 pt-4">
@@ -726,7 +817,7 @@ async function renderStudentDashboard_Menu(userData) {
 }
 
 // (Sem alteração)
-function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */ 
+function renderPlanner_TarefaDoDia(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cicloIndex = userData.cicloIndex || 0;
     const materiaDoDia = CICLO_DE_ESTUDOS[cicloIndex];
@@ -737,7 +828,7 @@ function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */
             <h2 class="text-2xl font-bold text-white mb-4">Sua Tarefa de Hoje</h2>
             <p class="text-gray-300 mb-6 text-lg">
                 Hoje é dia de <strong class="text-blue-300 capitalize">${materiaDoDia.replace('_', ' ')}</strong>.
-                Sua meta é resolver ${metaDoDia} questões.
+                A sua meta é resolver ${metaDoDia} questões.
             </p>
             <button data-action="start-study-session" data-materia="${materiaDoDia}"
                     class="w-full md:w-auto p-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 transition duration-300">
@@ -746,8 +837,31 @@ function renderPlanner_TarefaDoDia(userData) { /* ...código omitido... */
         </div>
     `;
 }
+
+// ===============================================
+// (NOVA FUNÇÃO) renderAnotacoesMenu
+// ===============================================
+function renderAnotacoesMenu() {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    return `
+        <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
+        <div class="${cardStyle}">
+            <h2 class="text-2xl font-bold text-white mb-6">Caderno de Anotações</h2>
+            <p class="text-gray-300 mb-6">Selecione uma matéria para ver ou editar as suas anotações:</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                ${TODAS_MATERIAS.map(materia => `
+                    <button data-action="show-anotacoes-editor" data-materia="${materia}"
+                            class="p-4 bg-yellow-600 text-white font-semibold rounded-lg hover:bg-yellow-700 transition duration-300 capitalize">
+                        ${materia.replace('_', ' ')}
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
 // (Sem alteração)
-function renderFreeStudyDashboard(userData) { /* ...código omitido... */ 
+function renderFreeStudyDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
     return `
@@ -766,15 +880,14 @@ function renderFreeStudyDashboard(userData) { /* ...código omitido... */
         </div>
     `;
 }
-// (Sem alteração)
-function renderPlannerSetupForm() { /* ...código omitido... */ 
+function renderPlannerSetupForm() {
     const cardStyle = "bg-gray-800 p-8 rounded-lg shadow-xl border border-gray-700";
     const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
     const labelStyle = "block text-sm font-medium text-gray-300";
     return `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle} max-w-lg mx-auto">
-            <h2 class="text-2xl font-bold text-white mb-4">Vamos configurar sua meta</h2>
+            <h2 class="text-2xl font-bold text-white mb-4">Vamos configurar a sua meta</h2>
             <p class="text-gray-300 mb-6">Quantas questões você se compromete a resolver por dia de estudo?</p>
             <form id="form-planner-setup" class="space-y-4">
                 <div>
@@ -790,8 +903,7 @@ function renderPlannerSetupForm() { /* ...código omitido... */
         </div>
     `;
 }
-// (Sem alteração)
-function renderCreateQuestionForm() { /* ...código omitido... */ 
+function renderCreateQuestionForm() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const inputStyle = "w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
     const labelStyle = "block text-sm font-medium text-gray-300";
@@ -819,8 +931,7 @@ function renderCreateQuestionForm() { /* ...código omitido... */
         </div>
     `;
 }
-// (Sem alteração)
-async function renderListQuestionsUI() { /* ...código omitido... */ 
+async function renderListQuestionsUI() {
     appContent.innerHTML = renderLoadingState(); 
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     let listHtml = "";
@@ -832,13 +943,13 @@ async function renderListQuestionsUI() { /* ...código omitido... */
         } else {
             querySnapshot.forEach((doc) => {
                 const questao = doc.data();
-                const docId = doc.id;
+                const docId = doc.id; // (IMPORTANTE) Usar o ID do documento
                 listHtml += `
                     <div id="item-${docId}" class="p-4 bg-gray-900 rounded-lg flex items-center justify-between">
                         <div>
                             <span class="text-sm font-bold uppercase text-blue-400">${questao.materia} | ${questao.edicao || 'N/A'}</span>
                             <p class="text-white">${questao.enunciado.substring(0, 80)}...</p>
-                            <p class="text-xs text-gray-400 mt-1">Tema: ${questao.tema || 'Não definido'}</p>
+                            <p class="text-xs text-gray-400 mt-1">Tema: ${questao.tema || 'Não definido'} | ID: ${docId}</p>
                         </div>
                         <button data-action="delete-question" data-id="${docId}" class="bg-red-600 text-white font-semibold py-1 px-3 rounded hover:bg-red-700 transition text-sm">Apagar</button>
                     </div>
@@ -857,11 +968,10 @@ async function renderListQuestionsUI() { /* ...código omitido... */
         appContent.innerHTML = `<p>Erro ao listar: ${error.message}</p>`;
     }
 }
-// (Sem alteração)
-function renderSimuladosMenu() { /* ...código omitido... */ 
+function renderSimuladosMenu() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
-    const edicoes = ["OAB-38", "OAB-37", "OAB-36", "OAB-35"];
+    const edicoes = ["OAB-38", "OAB-37", "OAB-36", "OAB-35"]; // Pode adicionar mais aqui
     return `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle}">
@@ -887,7 +997,6 @@ function renderSimuladosMenu() { /* ...código omitido... */
         </div>
     `;
 }
-// (Sem alteração)
 function renderQuiz(duracaoSegundos = null) {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
