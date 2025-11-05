@@ -1,2 +1,6 @@
 # Chave de Admin Secreta
 serviceAccountKey.json
+
+# Pasta de pacotes do Node
+node_modules
+serviceAccountKey.json.json
