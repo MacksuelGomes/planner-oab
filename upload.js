@@ -1,10 +1,24 @@
-/* Script upload.js */
+/*
+ * ========================================================
+ * SCRIPT DE CARGA MASSIVA DE QUESTÕES
+ * (VERSÃO 2 - Com correção de caminho)
+ * ========================================================
+ */
+
+// 1. Importar as bibliotecas
 const admin = require('firebase-admin');
 const fs = require('fs');
 const csv = require('csv-parser');
-const serviceAccount = require('./serviceAccountKey.json');
-const csvFilePath = './questoes.csv';
+const path = require('path'); // <-- (NOVA LINHA) Importa o módulo 'path'
 
+// 2. Apontar para a sua Chave de Admin
+const serviceAccount = require('./serviceAccountKey.json');
+
+// 3. Apontar para o seu arquivo CSV (De forma mais robusta)
+//    __dirname é uma variável especial que significa "a pasta onde este script está"
+const csvFilePath = path.join(__dirname, 'questoes.csv'); // <-- (LINHA MODIFICADA)
+
+// 4. Inicializar o Firebase Admin
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
@@ -14,27 +28,33 @@ const questoesRef = db.collection('questoes');
 
 console.log('A iniciar a importação do arquivo:', csvFilePath);
 
+// 5. Ler o arquivo CSV
 fs.createReadStream(csvFilePath)
   .pipe(csv())
   .on('data', async (row) => {
     try {
+      // 6. Formatar os dados da linha do CSV
       const questaoData = {
         materia: row.materia || '',
         edicao: row.edicao || '',
         tema: row.tema || '',
         enunciado: row.enunciado || 'Enunciado não fornecido',
         alternativas: {
-          A: row.alt_a || '', B: row.alt_b || '',
-          C: row.alt_c || '', D: row.alt_d || ''
+          A: row.alt_a || '',
+          B: row.alt_b || '',
+          C: row.alt_c || '',
+          D: row.alt_d || ''
         },
         correta: row.correta || '',
         comentario: row.comentario || ''
       };
 
-      const docRef = questoesRef.doc(); 
-      questaoData.id = docRef.id;       
+      // 7. Criar um ID único e salvar no banco
+      const docRef = questoesRef.doc(); // Gera um ID automático
+      questaoData.id = docRef.id;       // Adiciona o ID ao documento
 
       await docRef.set(questaoData);
+      
       console.log(`Questão ${questaoData.id} (${questaoData.materia}) adicionada.`);
 
     } catch (error) {
