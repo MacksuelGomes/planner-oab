@@ -1,14 +1,10 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.24 - Pesquisa Flexível)
+ * ARQUIVO: js/main.js (VERSÃO 5.25 - Correção Textual)
  *
  * NOVIDADES:
- * - 'renderSimuladosMenu' agora passa os valores numérico e
- * romano (ex: "31,XXXI") para o gestor de eventos.
- * - 'handleStartSimulado' foi reescrito. Agora ele gera
- * 4 variações de nome (OAB-31, 31, OAB-XXXI, XXXI) e usa
- * um query 'in' do Firestore para encontrar
- * questões em qualquer um desses formatos.
+ * - Corrigido o erro de digitação de
+ * "Simulado Acertivo" para "Simulado Assertivo".
  * ========================================================
  */
 
@@ -181,17 +177,16 @@ appContent.addEventListener('click', async (e) => {
         const materia = actionButton.dataset.materia;
         await handleStartStudySession(materia);
     }
-    // (ATUALIZADO) Ação do Dropdown de Simulados
     if (action === 'start-simulado-edicao-dropdown') {
         const selectEl = document.getElementById('select-simulado-edicao');
         const valor = selectEl.value; // ex: "31,XXXI"
         
-        if (valor) { // Só inicia se o usuário selecionou uma
-            const [num, rom] = valor.split(','); // num = "31", rom = "XXXI"
-            await handleStartSimulado(num, rom); // Envia ambos para a função
+        if (valor) { 
+            const [num, rom] = valor.split(','); 
+            await handleStartSimulado(num, rom); 
         }
     }
-    if (action === 'start-simulado-assertivo') {
+    if (action === 'start-simulado-acertivo') { // O nome da AÇÃO continua o mesmo
         await handleStartSimuladoAcertivo();
     }
     if (action === 'resetar-desempenho') {
@@ -245,10 +240,9 @@ async function handleCreateQuestionSubmit(form) {
     statusEl.textContent = 'A guardar...';
     try {
         const formData = new FormData(form);
-        // (ATUALIZADO) O formato "OAB-XXXI" é o mais recomendado
         const questaoData = {
             materia: formData.get('materia'),
-            edicao: formData.get('edicao'), // ex: "OAB-XXXI" ou "XXXI"
+            edicao: formData.get('edicao'), 
             tema: formData.get('tema'),
             enunciado: formData.get('enunciado'),
             alternativas: { A: formData.get('alt_a'), B: formData.get('alt_b'), C: formData.get('alt_c'), D: formData.get('alt_d') },
@@ -498,13 +492,10 @@ async function salvarProgresso(materia, acertou) {
     }, { merge: true });
 }
 
-// ===============================================
-// (ATUALIZADO) handleStartSimulado (Agora usa 'in')
-// ===============================================
-async function handleStartSimulado(num, rom) { // Recebe "31" e "XXXI"
+async function handleStartSimulado(num, rom) { 
     appContent.innerHTML = renderLoadingState(); 
     
-    // 1. Gera as 4 variações de nome que você pediu
+    // Gera as 4 variações de nome
     const variacoes = [
         `OAB-${num}`, // "OAB-31"
         num,         // "31"
@@ -515,7 +506,7 @@ async function handleStartSimulado(num, rom) { // Recebe "31" e "XXXI"
     try {
         const questoesRef = collection(db, 'questoes');
         
-        // 2. Faz um query com o operador 'in'
+        // Faz um query com o operador 'in'
         const q = query(questoesRef, where("edicao", "in", variacoes));
         
         const querySnapshot = await getDocs(q);
@@ -579,10 +570,10 @@ async function handleStartSimuladoAcertivo() {
         quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        quizTitle = 'Simulado Acertivo'; 
+        quizTitle = 'Simulado Assertivo'; // <-- (CORRIGIDO)
         renderQuiz(5 * 60 * 60); 
     } catch (error) {
-        console.error("Erro ao gerar Simulado Acertivo:", error);
+        console.error("Erro ao gerar Simulado Assertivo:", error);
         let returnButtonHtml = getVoltarButtonHtml(); 
         appContent.innerHTML = `<p class="text-red-400">Erro ao gerar simulado: ${error.message}</p>${returnButtonHtml}`;
     }
@@ -1010,16 +1001,13 @@ async function renderListQuestionsUI() {
     }
 }
 
-// ===============================================
-// (ATUALIZADO) renderSimuladosMenu (Dropdown + Valores Romanos/Numéricos)
-// ===============================================
 function renderSimuladosMenu() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
     // Estilo para o <select>
     const selectStyle = "w-full p-3 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-blue-500 focus:ring-blue-500";
 
-    // (NOVO) Array de objetos com os dois valores (numérico e romano)
+    // (ATUALIZADO) Array de objetos com os dois valores (numérico e romano)
     const edicoes = [
         { display: "XXXVIII", num: "38", rom: "XXXVIII" },
         { display: "XXXVII", num: "37", rom: "XXXVII" },
@@ -1126,4 +1114,3 @@ function renderQuiz(duracaoSegundos = null) {
         startCronometro(duracaoSegundos);
     }
 }
-
