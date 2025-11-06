@@ -1,11 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.21 - Dashboard Minimalista)
+ * ARQUIVO: js/main.js (VERSÃO 5.22 - Menu Simulados Expandido)
  *
  * NOVIDADES:
- * - A função 'renderStudentDashboard_Menu' foi totalmente
- * redesenhada para um layout minimalista, vertical e
- * com ícones, similar ao 'index.html'.
+ * - A função 'renderSimuladosMenu' foi atualizada para
+ * mostrar as edições de V (5) a XXXVIII (38).
+ * - Os botões agora mostram algarismos romanos, mas
+ * enviam o valor correto (ex: "OAB-38") para o query.
  * ========================================================
  */
 
@@ -43,7 +44,7 @@ let metaQuestoesDoDia = 0;
 let cronometroInterval = null; 
 let quizReturnPath = 'menu'; 
 let quizTitle = 'Estudo'; 
-let anotacaoDebounceTimer = null; // Timer para salvar anotações
+let anotacaoDebounceTimer = null; 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
@@ -72,28 +73,23 @@ async function loadDashboard(user) {
             const ultimoLoginStr = ultimoLoginData ? getFormattedDate(ultimoLoginData) : null;
 
             if (ultimoLoginStr !== hojeStr) {
-                // É o primeiro login do dia, vamos atualizar as stats
                 const ontem = new Date();
                 ontem.setDate(ontem.getDate() - 1);
                 const ontemStr = getFormattedDate(ontem);
 
                 const totalDiasEstudo = (userData.totalDiasEstudo || 0) + 1;
-                let sequenciaDias = 1; // Default
+                let sequenciaDias = 1; 
                 
                 if (ultimoLoginStr === ontemStr) {
-                    // O último login foi ontem, continua a sequência
                     sequenciaDias = (userData.sequenciaDias || 0) + 1;
                 }
                 
-                // Atualiza o documento no Firestore
                 const novosDados = {
                     totalDiasEstudo: totalDiasEstudo,
                     sequenciaDias: sequenciaDias,
                     ultimoLogin: new Date()
                 };
                 await updateDoc(userDocRef, novosDados);
-
-                // Atualiza o objeto 'userData' local para renderizar com os dados novos
                 userData = { ...userData, ...novosDados };
             }
             // --- (FIM DA LÓGICA DE SEQUÊNCIA) ---
@@ -115,14 +111,11 @@ async function loadDashboard(user) {
 // --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
 appContent.addEventListener('click', async (e) => {
     
-    // Procura por 'data-action' no elemento pai
     const actionButton = e.target.closest('[data-action]');
 
     // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
-        // Se o clique foi numa alternativa E não foi num botão de ação,
-        // processa a alternativa.
         if (!actionButton) { 
             alternativaSelecionada = alternativaEl.dataset.alternativa;
             document.querySelectorAll('[data-alternativa]').forEach(el => {
@@ -304,25 +297,20 @@ async function handleResetarDesempenho() {
         
         const deletePromises = [];
 
-        // Apaga progresso
         const progressoRef = collection(userDocRef, 'progresso');
         const progressoSnapshot = await getDocs(progressoRef);
         progressoSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
         
-        // Apaga caderno de erros
         const errosRef = collection(userDocRef, 'questoes_erradas');
         const errosSnapshot = await getDocs(errosRef);
         errosSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
 
-        // Apaga anotações
         const anotacoesRef = collection(userDocRef, 'anotacoes');
         const anotacoesSnapshot = await getDocs(anotacoesRef);
         anotacoesSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
         
-        // Executa todas as deleções
         await Promise.all(deletePromises);
 
-        // Reseta o documento principal
         await updateDoc(userDocRef, {
             cicloIndex: 0,
             totalDiasEstudo: 0,
@@ -712,12 +700,8 @@ function renderAdminDashboard(userData) {
     `;
 }
 
-// ===============================================
-// (ATUALIZADO) renderStudentDashboard_Menu (Novo Layout Minimalista)
-// ===============================================
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
-    // Estilo para os itens do novo menu
     const menuItemStyle = "bg-gray-800 rounded-lg shadow-xl border border-gray-700 transition duration-300 ease-in-out transform hover:border-blue-400 hover:scale-[1.02] cursor-pointer";
 
     // --- (LÓGICA DE STATS) ---
@@ -855,7 +839,6 @@ async function renderStudentDashboard_Menu(userData) {
     `;
 }
 
-// (Sem alteração)
 function renderPlanner_TarefaDoDia(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cicloIndex = userData.cicloIndex || 0;
@@ -896,14 +879,13 @@ function renderAnotacoesMenu() {
 }
 function renderFreeStudyDashboard(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
-    const materias = ["etica", "civil", "processo_civil", "penal", "processo_penal", "constitucional", "administrativo", "tributario", "empresarial", "trabalho", "processo_trabalho"];
     return `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle}">
             <h2 class="text-2xl font-bold text-white mb-6">Estudo Livre</h2>
             <p class="text-gray-300 mb-6">Selecione uma matéria para iniciar (sem meta de questões):</p>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                ${materias.map(materia => `
+                ${TODAS_MATERIAS.map(materia => `
                     <button data-action="start-study-session" data-materia="${materia}"
                             class="p-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-300 capitalize">
                         ${materia.replace('_', ' ')}
@@ -1001,10 +983,52 @@ async function renderListQuestionsUI() {
         appContent.innerHTML = `<p>Erro ao listar: ${error.message}</p>`;
     }
 }
+
+// ===============================================
+// (ATUALIZADO) renderSimuladosMenu (Romanos + Lista Expandida)
+// ===============================================
 function renderSimuladosMenu() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
-    const edicoes = ["OAB-38", "OAB-37", "OAB-36", "OAB-35"]; 
+
+    // (NOVO) Array de objetos para mapear o display (Romano) para o valor (BD)
+    const edicoes = [
+        { display: "XXXVIII", value: "OAB-38" },
+        { display: "XXXVII", value: "OAB-37" },
+        { display: "XXXVI", value: "OAB-36" },
+        { display: "XXXV", value: "OAB-35" },
+        { display: "XXXIV", value: "OAB-34" },
+        { display: "XXXIII", value: "OAB-33" },
+        { display: "XXXII", value: "OAB-32" },
+        { display: "XXXI", value: "OAB-31" },
+        { display: "XXX", value: "OAB-30" },
+        { display: "XXIX", value: "OAB-29" },
+        { display: "XXVIII", value: "OAB-28" },
+        { display: "XXVII", value: "OAB-27" },
+        { display: "XXVI", value: "OAB-26" },
+        { display: "XXV", value: "OAB-25" },
+        { display: "XXIV", value: "OAB-24" },
+        { display: "XXIII", value: "OAB-23" },
+        { display: "XXII", value: "OAB-22" },
+        { display: "XXI", value: "OAB-21" },
+        { display: "XX", value: "OAB-20" },
+        { display: "XIX", value: "OAB-19" },
+        { display: "XVIII", value: "OAB-18" },
+        { display: "XVII", value: "OAB-17" },
+        { display: "XVI", value: "OAB-16" },
+        { display: "XV", value: "OAB-15" },
+        { display: "XIV", value: "OAB-14" },
+        { display: "XIII", value: "OAB-13" },
+        { display: "XII", value: "OAB-12" },
+        { display: "XI", value: "OAB-11" },
+        { display: "X", value: "OAB-10" },
+        { display: "IX", value: "OAB-9" },
+        { display: "VIII", value: "OAB-8" },
+        { display: "VII", value: "OAB-7" },
+        { display: "VI", value: "OAB-6" },
+        { display: "V", value: "OAB-5" }
+    ];
+    
     return `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle}">
@@ -1013,23 +1037,25 @@ function renderSimuladosMenu() {
             <div class="grid md:grid-cols-2 gap-6">
                 <div class="${cardStyle}">
                     <h3 class="text-xl font-bold text-blue-400 mb-4">Por Edição Anterior</h3>
-                    <div class="grid grid-cols-2 gap-3">
+                    
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                         ${edicoes.map(ed => `
-                            <button data-action="start-simulado-edicao" data-edicao="${ed}"
+                            <button data-action="start-simulado-edicao" data-edicao="${ed.value}"
                                     class="p-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition">
-                                ${ed}
+                                ${ed.display}
                             </button>
                         `).join('')}
                     </div>
                 </div>
                 <div data-action="start-simulado-acertivo" class="${cardStyle} ${cardHover}">
-                    <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Assertivo</h3>
+                    <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Acertivo</h3>
                     <p class="text-gray-400">Um simulado de 80 questões focado apenas nos temas mais cobrados.</p>
                 </div>
             </div>
         </div>
     `;
 }
+
 function renderQuiz(duracaoSegundos = null) {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -1066,4 +1092,3 @@ function renderQuiz(duracaoSegundos = null) {
         startCronometro(duracaoSegundos);
     }
 }
-
