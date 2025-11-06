@@ -191,7 +191,7 @@ appContent.addEventListener('click', async (e) => {
             await handleStartSimulado(num, rom); // Envia ambos para a função
         }
     }
-    if (action === 'start-simulado-acertivo') {
+    if (action === 'start-simulado-assertivo') {
         await handleStartSimuladoAcertivo();
     }
     if (action === 'resetar-desempenho') {
@@ -1082,7 +1082,7 @@ function renderSimuladosMenu() {
                 </div>
 
                 <div data-action="start-simulado-acertivo" class="${cardStyle} ${cardHover}">
-                    <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Acertivo</h3>
+                    <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Assertivo</h3>
                     <p class="text-gray-400">Um simulado de 80 questões focado apenas nos temas mais cobrados.</p>
                 </div>
             </div>
@@ -1126,3 +1126,4 @@ function renderQuiz(duracaoSegundos = null) {
         startCronometro(duracaoSegundos);
     }
 }
+
