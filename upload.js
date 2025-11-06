@@ -1,7 +1,7 @@
 /*
  * ========================================================
  * SCRIPT DE CARGA MASSIVA DE QUESTÕES
- * (VERSÃO 2 - Com correção de caminho)
+ * (VERSÃO 2.1 - Completa)
  * ========================================================
  */
 
@@ -9,14 +9,13 @@
 const admin = require('firebase-admin');
 const fs = require('fs');
 const csv = require('csv-parser');
-const path = require('path'); // <-- (NOVA LINHA) Importa o módulo 'path'
+const path = require('path'); // Importa o módulo 'path'
 
 // 2. Apontar para a sua Chave de Admin
-const serviceAccount = require('./serviceAccountKey.json');
+const serviceAccount = require(path.join(__dirname, 'serviceAccountKey.json'));
 
-// 3. Apontar para o seu arquivo CSV (De forma mais robusta)
-//    __dirname é uma variável especial que significa "a pasta onde este script está"
-const csvFilePath = path.join(__dirname, 'questoes.csv'); // <-- (LINHA MODIFICADA)
+// 3. Apontar para o seu arquivo CSV
+const csvFilePath = path.join(__dirname, 'questoes.csv');
 
 // 4. Inicializar o Firebase Admin
 admin.initializeApp({
@@ -27,9 +26,18 @@ const db = admin.firestore();
 const questoesRef = db.collection('questoes');
 
 console.log('A iniciar a importação do arquivo:', csvFilePath);
+console.log('A enviar dados para o Projeto Firebase:', serviceAccount.project_id); // <-- Linha de verificação
 
 // 5. Ler o arquivo CSV
 fs.createReadStream(csvFilePath)
+  .on('error', (err) => {
+    // Erro ao LER o CSV
+    console.error('========================================');
+    console.error('ERRO AO LER O FICHEIRO CSV!');
+    console.error(`Mensagem: ${err.message}`);
+    console.error('Verifique se o ficheiro "questoes.csv" está na pasta e com o nome correto.');
+    console.error('========================================');
+  })
   .pipe(csv())
   .on('data', async (row) => {
     try {
@@ -50,15 +58,17 @@ fs.createReadStream(csvFilePath)
       };
 
       // 7. Criar um ID único e salvar no banco
-      const docRef = questoesRef.doc(); // Gera um ID automático
-      questaoData.id = docRef.id;       // Adiciona o ID ao documento
+      const docRef = questoesRef.doc(); 
+      questaoData.id = docRef.id;       
 
       await docRef.set(questaoData);
       
-      console.log(`Questão ${questaoData.id} (${questaoData.materia}) adicionada.`);
+      // (Vamos mostrar menos mensagens para não poluir)
+      // console.log(`Questão ${questaoData.id} (${questaoData.materia}) adicionada.`);
 
     } catch (error) {
-      console.error('Erro ao salvar a linha:', row, error);
+      // Erro ao ENVIAR para o Firebase
+      console.error('Erro ao salvar a linha no Firebase:', row, error);
     }
   })
   .on('end', () => {
