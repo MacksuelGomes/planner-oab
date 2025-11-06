@@ -1,12 +1,14 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.22 - Menu Simulados Expandido)
+ * ARQUIVO: js/main.js (VERSÃO 5.23 - Dropdown de Simulados)
  *
  * NOVIDADES:
- * - A função 'renderSimuladosMenu' foi atualizada para
- * mostrar as edições de V (5) a XXXVIII (38).
- * - Os botões agora mostram algarismos romanos, mas
- * enviam o valor correto (ex: "OAB-38") para o query.
+ * - A função 'renderSimuladosMenu' foi redesenhada para
+ * usar uma "lista suspensa" (select dropdown),
+ * que é mais limpa e intuitiva.
+ * - Os valores das edições foram atualizados para usar
+ * algarismos romanos (ex: "OAB-XXXI") para
+ * corresponder ao banco de questões importado.
  * ========================================================
  */
 
@@ -179,9 +181,14 @@ appContent.addEventListener('click', async (e) => {
         const materia = actionButton.dataset.materia;
         await handleStartStudySession(materia);
     }
-    if (action === 'start-simulado-edicao') {
-        const edicao = actionButton.dataset.edicao;
-        await handleStartSimulado(edicao);
+    // (ATUALIZADO) Ação do Dropdown de Simulados
+    if (action === 'start-simulado-edicao-dropdown') {
+        // Encontra o dropdown
+        const selectEl = document.getElementById('select-simulado-edicao');
+        const edicao = selectEl.value;
+        if (edicao) { // Só inicia se o usuário selecionou uma
+            await handleStartSimulado(edicao);
+        }
     }
     if (action === 'start-simulado-acertivo') {
         await handleStartSimuladoAcertivo();
@@ -239,7 +246,7 @@ async function handleCreateQuestionSubmit(form) {
         const formData = new FormData(form);
         const questaoData = {
             materia: formData.get('materia'),
-            edicao: formData.get('edicao'),
+            edicao: formData.get('edicao'), // Ex: "OAB-XXXI"
             tema: formData.get('tema'),
             enunciado: formData.get('enunciado'),
             alternativas: { A: formData.get('alt_a'), B: formData.get('alt_b'), C: formData.get('alt_c'), D: formData.get('alt_d') },
@@ -277,7 +284,6 @@ async function handleDeleteQuestion(docId, button) {
 
 // --- [ PARTE 9: LÓGICA DE ALUNO ] ---
 
-// (Função auxiliar)
 function getFormattedDate(date) {
     const year = date.getFullYear();
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
@@ -928,7 +934,7 @@ function renderCreateQuestionForm() {
             <form id="form-create-question" class="space-y-4">
                 <div class="grid grid-cols-2 gap-4">
                     <div><label for="materia" class="${labelStyle}">Matéria (ex: etica, civil)</label><input type="text" id="materia" name="materia" required class="${inputStyle}"></div>
-                    <div><label for="edicao" class="${labelStyle}">Edição (ex: OAB-38, OAB-37)</label><input type="text" id="edicao" name="edicao" required class="${inputStyle}"></div>
+                    <div><label for="edicao" class="${labelStyle}">Edição (ex: OAB-XXXVIII)</label><input type="text" id="edicao" name="edicao" required class="${inputStyle}"></div>
                 </div>
                 <div><label for="tema" class="${labelStyle}">Tema (ex: Honorários, Recursos)</label><input type="text" id="tema" name="tema" class="${inputStyle}"></div>
                 <div><label for="enunciado" class="${labelStyle}">Enunciado da Questão</label><textarea id="enunciado" name="enunciado" rows="3" required class="${inputStyle}"></textarea></div>
@@ -985,48 +991,50 @@ async function renderListQuestionsUI() {
 }
 
 // ===============================================
-// (ATUALIZADO) renderSimuladosMenu (Romanos + Lista Expandida)
+// (ATUALIZADO) renderSimuladosMenu (Dropdown + Valores Romanos)
 // ===============================================
 function renderSimuladosMenu() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
+    const selectStyle = "w-full p-3 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-blue-500 focus:ring-blue-500";
 
-    // (NOVO) Array de objetos para mapear o display (Romano) para o valor (BD)
+    // (ATUALIZADO) O "valor" (value) agora usa algarismos romanos
+    // para corresponder ao seu CSV (ex: "OAB-XXXI").
     const edicoes = [
-        { display: "XXXVIII", value: "OAB-38" },
-        { display: "XXXVII", value: "OAB-37" },
-        { display: "XXXVI", value: "OAB-36" },
-        { display: "XXXV", value: "OAB-35" },
-        { display: "XXXIV", value: "OAB-34" },
-        { display: "XXXIII", value: "OAB-33" },
-        { display: "XXXII", value: "OAB-32" },
-        { display: "XXXI", value: "OAB-31" },
-        { display: "XXX", value: "OAB-30" },
-        { display: "XXIX", value: "OAB-29" },
-        { display: "XXVIII", value: "OAB-28" },
-        { display: "XXVII", value: "OAB-27" },
-        { display: "XXVI", value: "OAB-26" },
-        { display: "XXV", value: "OAB-25" },
-        { display: "XXIV", value: "OAB-24" },
-        { display: "XXIII", value: "OAB-23" },
-        { display: "XXII", value: "OAB-22" },
-        { display: "XXI", value: "OAB-21" },
-        { display: "XX", value: "OAB-20" },
-        { display: "XIX", value: "OAB-19" },
-        { display: "XVIII", value: "OAB-18" },
-        { display: "XVII", value: "OAB-17" },
-        { display: "XVI", value: "OAB-16" },
-        { display: "XV", value: "OAB-15" },
-        { display: "XIV", value: "OAB-14" },
-        { display: "XIII", value: "OAB-13" },
-        { display: "XII", value: "OAB-12" },
-        { display: "XI", value: "OAB-11" },
-        { display: "X", value: "OAB-10" },
-        { display: "IX", value: "OAB-9" },
-        { display: "VIII", value: "OAB-8" },
-        { display: "VII", value: "OAB-7" },
-        { display: "VI", value: "OAB-6" },
-        { display: "V", value: "OAB-5" }
+        { display: "XXXVIII", value: "OAB-XXXVIII" },
+        { display: "XXXVII", value: "OAB-XXXVII" },
+        { display: "XXXVI", value: "OAB-XXXVI" },
+        { display: "XXXV", value: "OAB-XXXV" },
+        { display: "XXXIV", value: "OAB-XXXIV" },
+        { display: "XXXIII", value: "OAB-XXXIII" },
+        { display: "XXXII", value: "OAB-XXXII" },
+        { display: "XXXI", value: "OAB-XXXI" }, // <--- A sua edição
+        { display: "XXX", value: "OAB-XXX" },
+        { display: "XXIX", value: "OAB-XXIX" },
+        { display: "XXVIII", value: "OAB-XXVIII" },
+        { display: "XXVII", value: "OAB-XXVII" },
+        { display: "XXVI", value: "OAB-XXVI" },
+        { display: "XXV", value: "OAB-XXV" },
+        { display: "XXIV", value: "OAB-XXIV" },
+        { display: "XXIII", value: "OAB-XXIII" },
+        { display: "XXII", value: "OAB-XXII" },
+        { display: "XXI", value: "OAB-XXI" },
+        { display: "XX", value: "OAB-XX" },
+        { display: "XIX", value: "OAB-XIX" },
+        { display: "XVIII", value: "OAB-XVIII" },
+        { display: "XVII", value: "OAB-XVII" },
+        { display: "XVI", value: "OAB-XVI" },
+        { display: "XV", value: "OAB-XV" },
+        { display: "XIV", value: "OAB-XIV" },
+        { display: "XIII", value: "OAB-XIII" },
+        { display: "XII", value: "OAB-XII" },
+        { display: "XI", value: "OAB-XI" },
+        { display: "X", value: "OAB-X" },
+        { display: "IX", value: "OAB-IX" },
+        { display: "VIII", value: "OAB-VIII" },
+        { display: "VII", value: "OAB-VII" },
+        { display: "VI", value: "OAB-VI" },
+        { display: "V", value: "OAB-V" }
     ];
     
     return `
@@ -1035,18 +1043,24 @@ function renderSimuladosMenu() {
             <h2 class="text-2xl font-bold text-white mb-6">Simulados</h2>
             <p class="text-gray-300 mb-6">Escolha um tipo de simulado para iniciar:</p>
             <div class="grid md:grid-cols-2 gap-6">
+                
                 <div class="${cardStyle}">
                     <h3 class="text-xl font-bold text-blue-400 mb-4">Por Edição Anterior</h3>
-                    
-                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                        ${edicoes.map(ed => `
-                            <button data-action="start-simulado-edicao" data-edicao="${ed.value}"
-                                    class="p-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition">
-                                ${ed.display}
-                            </button>
-                        `).join('')}
+                    <p class="text-gray-400 mb-4">Selecione uma prova para começar:</p>
+                    <div class="space-y-4">
+                        <select id="select-simulado-edicao" class="${selectStyle}">
+                            <option value="">Selecione uma edição...</option>
+                            ${edicoes.map(ed => `
+                                <option value="${ed.value}">Exame ${ed.display}</option>
+                            `).join('')}
+                        </select>
+                        <button data-action="start-simulado-edicao-dropdown"
+                                class="w-full p-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition">
+                            Iniciar Simulado
+                        </button>
                     </div>
                 </div>
+
                 <div data-action="start-simulado-acertivo" class="${cardStyle} ${cardHover}">
                     <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Acertivo</h3>
                     <p class="text-gray-400">Um simulado de 80 questões focado apenas nos temas mais cobrados.</p>
