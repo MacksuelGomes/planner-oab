@@ -1,10 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.25 - Correção Textual)
+ * ARQUIVO: js/main.js (VERSÃO 5.26 - Correção do Cronómetro e Relatório)
  *
  * NOVIDADES:
- * - Corrigido o erro de digitação de
- * "Simulado Acertivo" para "Simulado Assertivo".
+ * - O cronómetro agora persiste entre as questões.
+ * - Ao final do tempo, o quiz é encerrado automaticamente.
+ * - Ao finalizar, um relatório de desempenho (acertos, erros, %)
+ * é exibido.
  * ========================================================
  */
 
@@ -44,6 +46,11 @@ let quizReturnPath = 'menu';
 let quizTitle = 'Estudo'; 
 let anotacaoDebounceTimer = null; 
 
+// (NOVO) Variáveis de estado para o relatório e cronómetro
+let quizReport = { acertos: 0, erros: 0, total: 0 };
+let quizTempoRestante = null; // Tempo em segundos
+
+
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
 onAuthStateChanged(auth, (user) => {
     if (user) {
@@ -56,7 +63,8 @@ onAuthStateChanged(auth, (user) => {
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
 async function loadDashboard(user) {
-    if (cronometroInterval) clearInterval(cronometroInterval); 
+    if (cronometroInterval) clearInterval(cronometroInterval); // Limpa qualquer timer ao voltar ao menu
+    quizTempoRestante = null; // Garante que o timer não aparece
     try {
         appContent.innerHTML = renderLoadingState();
         const userDocRef = doc(db, 'users', user.uid);
@@ -65,7 +73,6 @@ async function loadDashboard(user) {
         if (userDoc.exists()) {
             let userData = userDoc.data();
             
-            // --- (LÓGICA DE SEQUÊNCIA) ---
             const hojeStr = getFormattedDate(new Date());
             const ultimoLoginData = userData.ultimoLogin ? userData.ultimoLogin.toDate() : null;
             const ultimoLoginStr = ultimoLoginData ? getFormattedDate(ultimoLoginData) : null;
@@ -90,7 +97,6 @@ async function loadDashboard(user) {
                 await updateDoc(userDocRef, novosDados);
                 userData = { ...userData, ...novosDados };
             }
-            // --- (FIM DA LÓGICA DE SEQUÊNCIA) ---
 
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
@@ -186,8 +192,8 @@ appContent.addEventListener('click', async (e) => {
             await handleStartSimulado(num, rom); 
         }
     }
-    if (action === 'start-simulado-acertivo') { // O nome da AÇÃO continua o mesmo
-        await handleStartSimuladoAcertivo();
+    if (action === 'start-simulado-assertivo') { 
+        await handleStartSimuladoAssertivo();
     }
     if (action === 'resetar-desempenho') {
         await handleResetarDesempenho();
@@ -197,12 +203,11 @@ appContent.addEventListener('click', async (e) => {
     if (action === 'confirmar-resposta') { await handleConfirmarResposta(); }
     if (action === 'proxima-questao') { await handleProximaQuestao(); }
     if (action === 'sair-quiz') {
+        // A lógica de Sair (seja do relatório ou do quiz)
         if (quizReturnPath === 'free-study') {
             appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
         } else if (quizReturnPath === 'simulados') {
             appContent.innerHTML = renderSimuladosMenu();
-        } else if (quizReturnPath === 'erros') {
-            loadDashboard(auth.currentUser);
         } else {
             loadDashboard(auth.currentUser); 
         }
@@ -242,7 +247,7 @@ async function handleCreateQuestionSubmit(form) {
         const formData = new FormData(form);
         const questaoData = {
             materia: formData.get('materia'),
-            edicao: formData.get('edicao'), 
+            edicao: formData.get('edicao'), // ex: "OAB-XXXI" ou "XXXI"
             tema: formData.get('tema'),
             enunciado: formData.get('enunciado'),
             alternativas: { A: formData.get('alt_a'), B: formData.get('alt_b'), C: formData.get('alt_c'), D: formData.get('alt_d') },
@@ -345,6 +350,7 @@ async function handleSavePlannerSetup(form) {
         botao.textContent = 'Erro ao salvar!';
     }
 }
+
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -372,6 +378,11 @@ async function handleStartStudySession(materia) {
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = `Estudo: ${materia.replace('_', ' ')}`;
+        
+        // (NOVO) Reseta o relatório e o cronómetro
+        quizReport = { acertos: 0, erros: 0, total: 0 };
+        quizTempoRestante = null; 
+
         renderQuiz(); 
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
@@ -379,56 +390,61 @@ async function handleStartStudySession(materia) {
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar questões: ${error.message}</p>${returnButtonHtml}`;
     }
 }
+
+// (NOVO) Função para centralizar o fim do quiz
+async function finalizarQuiz() {
+    if (cronometroInterval) clearInterval(cronometroInterval); 
+    quizTempoRestante = null;
+
+    let textoFinal = `Você completou ${quizReport.total} questões.`;
+    let textoBotao = "Voltar";
+    
+    if (quizReturnPath === 'menu') { 
+        textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões!`;
+        textoBotao = "Voltar ao Menu Principal";
+        // Atualiza o ciclo do planner
+        try {
+            const user = auth.currentUser;
+            const userDocRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userDocRef);
+            const dadosAtuais = userDoc.data();
+            let novoIndex = (dadosAtuais.cicloIndex || 0) + 1;
+            if (novoIndex >= CICLO_DE_ESTUDOS.length) { novoIndex = 0; }
+            await updateDoc(userDocRef, { cicloIndex: novoIndex });
+        } catch (error) { console.error("Erro ao atualizar o ciclo:", error); }
+    }
+    if (quizReturnPath === 'simulados') {
+        textoFinal = `Você completou o simulado.`;
+        textoBotao = "Voltar ao Menu de Simulados";
+    }
+    if (quizReturnPath === 'erros') {
+        textoFinal = `Você completou sua revisão de ${quizReport.total} questões.`;
+        textoBotao = "Voltar ao Menu Principal";
+    }
+    if (quizReturnPath === 'free-study') {
+         textoFinal = `Você completou ${quizReport.total} questões.`;
+         textoBotao = "Voltar ao Estudo Livre";
+    }
+
+    appContent.innerHTML = renderQuizReport(quizReport, textoFinal, textoBotao);
+}
+
 async function handleProximaQuestao() {
     quizIndexAtual++; 
-    if (quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia) ) {
-        let textoFinal = `Você completou ${quizIndexAtual} questões de ${quizQuestoes[0].materia}.`;
-        let textoBotao = "Voltar ao Estudo Livre"; 
-        
-        if (quizReturnPath === 'menu') { 
-            textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões de ${quizQuestoes[0].materia}!`;
-            textoBotao = "Voltar ao Menu Principal";
-        }
-        if (quizReturnPath === 'simulados') {
-            textoFinal = `Você completou o simulado de ${quizQuestoes.length} questões.`;
-            textoBotao = "Voltar ao Menu de Simulados";
-        }
-        if (quizReturnPath === 'erros') {
-            textoFinal = `Você completou sua revisão de ${quizQuestoes.length} questões.`;
-            textoBotao = "Voltar ao Menu Principal";
-        }
+    
+    // Verifica se o quiz acabou (pelo número de questões)
+    const quizTerminou = quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia);
 
-        if (cronometroInterval) clearInterval(cronometroInterval); 
-        appContent.innerHTML = `
-            <div class="text-center">
-                <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
-                <p class="text-gray-300 mb-8">${textoFinal}</p>
-                <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">
-                    ${textoBotao}
-                </button>
-            </div>
-        `;
-        if (quizReturnPath === 'menu') {
-            try {
-                const user = auth.currentUser;
-                const userDocRef = doc(db, 'users', user.uid);
-                const userDoc = await getDoc(userDocRef);
-                const dadosAtuais = userDoc.data();
-                let novoIndex = (dadosAtuais.cicloIndex || 0) + 1;
-                if (novoIndex >= CICLO_DE_ESTUDOS.length) {
-                    novoIndex = 0;
-                }
-                await updateDoc(userDocRef, { cicloIndex: novoIndex });
-            } catch (error) {
-                console.error("Erro ao atualizar o ciclo:", error);
-            }
-        }
+    if (quizTerminou) {
+        finalizarQuiz(); // Chama a nova função de finalizar
     } else {
+        // Continua o quiz
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        renderQuiz();
+        renderQuiz(); // Renderiza a próxima questão (o timer será redesenhado)
     }
 }
+
 async function handleConfirmarResposta() { 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
@@ -441,7 +457,16 @@ async function handleConfirmarResposta() {
     const correta = questaoAtual.correta;
     const acertou = alternativaSelecionada === correta;
     
+    // (NOVO) Atualiza o relatório da sessão
+    quizReport.total++;
+    if (acertou) {
+        quizReport.acertos++;
+    } else {
+        quizReport.erros++;
+    }
+    
     try {
+        // Salva o progresso GERAL (no Firestore)
         await salvarProgresso(questaoAtual.materia, acertou);
 
         const user = auth.currentUser;
@@ -450,9 +475,9 @@ async function handleConfirmarResposta() {
         if (questaoId) {
             const erroRef = doc(db, 'users', user.uid, 'questoes_erradas', questaoId);
             if (!acertou) {
-                await setDoc(erroRef, questaoAtual);
+                await setDoc(erroRef, questaoAtual); // Adiciona ao caderno de erros
             } else if (quizReturnPath === 'erros') {
-                await deleteDoc(erroRef);
+                await deleteDoc(erroRef); // Se acertou e estava no caderno, remove
             }
         }
     } catch (error) {
@@ -527,14 +552,21 @@ async function handleStartSimulado(num, rom) {
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = `Simulado Exame ${rom}`; // Usa o romano para o título
-        renderQuiz(5 * 60 * 60); // 5 horas
+        
+        // (NOVO) Reseta o relatório e define o cronómetro
+        quizReport = { acertos: 0, erros: 0, total: 0 };
+        quizTempoRestante = 5 * 60 * 60; // 5 horas em segundos
+
+        renderQuiz(); // Desenha a primeira questão
+        startCronometro(); // Inicia o cronómetro
+
     } catch (error) {
         console.error("Erro ao carregar simulado:", error);
         let returnButtonHtml = getVoltarButtonHtml(); 
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar simulado: ${error.message}</p>${returnButtonHtml}`;
     }
 }
-async function handleStartSimuladoAcertivo() {
+async function handleStartSimuladoAssertivo() {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const themeCounts = new Map();
@@ -565,13 +597,20 @@ async function handleStartSimuladoAcertivo() {
             if (simuladoQuestoes.length >= 80) break; 
         }
         const finalExam = simuladoQuestoes.slice(0, 80); 
+        
         metaQuestoesDoDia = finalExam.length; 
         quizQuestoes = finalExam; 
         quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        quizTitle = 'Simulado Assertivo'; // <-- (CORRIGIDO)
-        renderQuiz(5 * 60 * 60); 
+        quizTitle = 'Simulado Assertivo';
+        
+        // (NOVO) Reseta o relatório e define o cronómetro
+        quizReport = { acertos: 0, erros: 0, total: 0 };
+        quizTempoRestante = 5 * 60 * 60; // 5 horas
+
+        renderQuiz(); 
+        startCronometro();
     } catch (error) {
         console.error("Erro ao gerar Simulado Assertivo:", error);
         let returnButtonHtml = getVoltarButtonHtml(); 
@@ -609,6 +648,11 @@ async function handleStartCadernoErros() {
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = `Caderno de Erros`;
+
+        // (NOVO) Reseta o relatório e o cronómetro
+        quizReport = { acertos: 0, erros: 0, total: 0 };
+        quizTempoRestante = null;
+
         renderQuiz(); 
     } catch (error) {
         console.error("Erro ao carregar caderno de erros:", error);
@@ -669,20 +713,29 @@ async function renderAnotacoesEditor(materia) {
     `;
 }
 
-function startCronometro(duracaoSegundos) {
+function startCronometro() {
     if (cronometroInterval) clearInterval(cronometroInterval); 
-    const cronometroEl = document.getElementById('quiz-cronometro');
-    if (!cronometroEl) return;
-    let tempoRestante = duracaoSegundos;
+
     cronometroInterval = setInterval(() => {
-        const horas = Math.floor(tempoRestante / 3600);
-        const minutos = Math.floor((tempoRestante % 3600) / 60);
-        const segundos = tempoRestante % 60;
+        const cronometroEl = document.getElementById('quiz-cronometro');
+        if (!cronometroEl) {
+            clearInterval(cronometroInterval);
+            return;
+        }
+
+        quizTempoRestante--; 
+        
+        const horas = Math.floor(quizTempoRestante / 3600);
+        const minutos = Math.floor((quizTempoRestante % 3600) / 60);
+        const segundos = quizTempoRestante % 60;
+        
         cronometroEl.textContent = 
             `${horas.toString().padStart(2, '0')}:${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`;
-        if (--tempoRestante < 0) {
+
+        if (quizTempoRestante <= 0) {
             clearInterval(cronometroInterval);
-            cronometroEl.textContent = "Tempo Esgotado!";
+            alert("Tempo esgotado! O seu simulado será finalizado.");
+            finalizarQuiz(); 
         }
     }, 1000);
 }
@@ -1004,10 +1057,8 @@ async function renderListQuestionsUI() {
 function renderSimuladosMenu() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
-    // Estilo para o <select>
     const selectStyle = "w-full p-3 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-blue-500 focus:ring-blue-500";
 
-    // (ATUALIZADO) Array de objetos com os dois valores (numérico e romano)
     const edicoes = [
         { display: "XXXVIII", num: "38", rom: "XXXVIII" },
         { display: "XXXVII", num: "37", rom: "XXXVII" },
@@ -1016,7 +1067,7 @@ function renderSimuladosMenu() {
         { display: "XXXIV", num: "34", rom: "XXXIV" },
         { display: "XXXIII", num: "33", rom: "XXXIII" },
         { display: "XXXII", num: "32", rom: "XXXII" },
-        { display: "XXXI", num: "31", rom: "XXXI" }, // <--- O seu exemplo
+        { display: "XXXI", num: "31", rom: "XXXI" },
         { display: "XXX", num: "30", rom: "XXX" },
         { display: "XXIX", num: "29", rom: "XXIX" },
         { display: "XXVIII", num: "28", rom: "XXVIII" },
@@ -1069,7 +1120,7 @@ function renderSimuladosMenu() {
                     </div>
                 </div>
 
-                <div data-action="start-simulado-acertivo" class="${cardStyle} ${cardHover}">
+                <div data-action="start-simulado-assertivo" class="${cardStyle} ${cardHover}">
                     <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Assertivo</h3>
                     <p class="text-gray-400">Um simulado de 80 questões focado apenas nos temas mais cobrados.</p>
                 </div>
@@ -1078,19 +1129,27 @@ function renderSimuladosMenu() {
     `;
 }
 
-function renderQuiz(duracaoSegundos = null) {
+function renderQuiz() {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
     const metaDoQuiz = (quizReturnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
+    
     let cronometroHtml = '';
-    if (duracaoSegundos) {
+    if (quizTempoRestante !== null) {
+        const horas = Math.floor(quizTempoRestante / 3600);
+        const minutos = Math.floor((quizTempoRestante % 3600) / 60);
+        const segundos = quizTempoRestante % 60;
+        const tempoFormatado = 
+            `${horas.toString().padStart(2, '0')}:${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`;
+        
         cronometroHtml = `
-            <div class="fixed top-20 right-4 bg-gray-900 text-white p-3 rounded-lg shadow-lg border border-blue-500">
-                <span class="text-2xl font-mono" id="quiz-cronometro">05:00:00</span>
+            <div class="fixed top-20 right-4 bg-gray-900 text-white p-3 rounded-lg shadow-lg border border-blue-500 z-50">
+                <span class="text-2xl font-mono" id="quiz-cronometro">${tempoFormatado}</span>
             </div>
         `;
     }
+    
     appContent.innerHTML = `
         ${cronometroHtml}
         <h2 class="text-2xl font-bold text-white mb-2 capitalize">${quizTitle}</h2>
@@ -1110,7 +1169,39 @@ function renderQuiz(duracaoSegundos = null) {
             <button id="quiz-botao-confirmar" data-action="confirmar-resposta" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition">Confirmar Resposta</button>
         </div>
     `;
-    if (duracaoSegundos) {
-        startCronometro(duracaoSegundos);
-    }
+}
+
+function renderQuizReport(report, textoFinal, textoBotao) {
+    const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
+    const taxaAcerto = (report.total > 0) ? ((report.acertos / report.total) * 100).toFixed(0) : 0;
+    
+    return `
+        <div class="text-center max-w-lg mx-auto">
+            <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
+            <p class="text-gray-300 mb-8 text-lg">${textoFinal}</p>
+            
+            <div class="${cardStyle} mb-8">
+                <h3 class="text-xl font-bold text-white mb-6">Seu Resumo da Sessão</h3>
+                <div class="grid grid-cols-3 gap-4 text-white">
+                    <div>
+                        <p class="text-sm font-medium text-gray-400 uppercase">ACERTOS</p>
+                        <p class="text-3xl font-bold text-green-400">${report.acertos}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm font-medium text-gray-400 uppercase">ERROS</p>
+                        <p class="text-3xl font-bold text-red-400">${report.erros}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm font-medium text-gray-400 uppercase">ACERTO</p>
+                        <p class="text-3xl font-bold text-blue-400">${taxaAcerto}%</p>
+                    </div>
+                </div>
+                <p class="text-gray-400 text-sm mt-4">Total de ${report.total} questões respondidas.</p>
+            </div>
+
+            <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-3 px-8 rounded hover:bg-blue-700 transition text-lg">
+                ${textoBotao}
+            </button>
+        </div>
+    `;
 }
