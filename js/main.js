@@ -1,14 +1,13 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.28 - Controlo de Reset Granular)
+ * ARQUIVO: js/main.js (VERSÃO 5.29 - Gráficos de Desempenho)
  *
  * NOVIDADES:
- * - Clicar em "Caderno de Erros" ou "Acertos" agora leva
- * a um novo menu (renderCadernoErrosMenu / renderCadernoAcertosMenu).
- * - Adicionados botões "Limpar Caderno" nessas páginas.
- * - Adicionadas novas funções (handleLimparCadernoErros / Acertos)
- * para apagar apenas essas coleções.
- * - O botão "Resetar todo o desempenho" (geral) foi mantido.
+ * - Adicionada a biblioteca Chart.js (no app.html).
+ * - A lista de desempenho é agora um gráfico de barras
+ * horizontal e interativo.
+ * - Criada a nova função 'renderPerformanceChart' para
+ * desenhar o gráfico.
  * ========================================================
  */
 
@@ -102,7 +101,8 @@ async function loadDashboard(user) {
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
-                appContent.innerHTML = await renderStudentDashboard_Menu(userData);
+                // (MODIFICADO) Esta função agora desenha o gráfico no final
+                await renderStudentDashboard_Menu(userData);
             }
         } else {
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
@@ -118,7 +118,6 @@ appContent.addEventListener('click', async (e) => {
     
     const actionButton = e.target.closest('[data-action]');
 
-    // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         if (!actionButton) { 
@@ -168,11 +167,11 @@ appContent.addEventListener('click', async (e) => {
     }
     if (action === 'show-caderno-erros') {
         quizReturnPath = 'erros';
-        await renderCadernoErrosMenu(); // (MODIFICADO) Mostra o menu de erros
+        await renderCadernoErrosMenu();
     }
     if (action === 'show-caderno-acertos') {
         quizReturnPath = 'acertos';
-        await renderCadernoAcertosMenu(); // (MODIFICADO) Mostra o menu de acertos
+        await renderCadernoAcertosMenu();
     }
     if (action === 'show-anotacoes-menu') {
         appContent.innerHTML = renderAnotacoesMenu();
@@ -202,7 +201,6 @@ appContent.addEventListener('click', async (e) => {
     if (action === 'start-simulado-assertivo') { 
         await handleStartSimuladoAssertivo();
     }
-    // (NOVO) Iniciar quizzes dos cadernos
     if (action === 'start-quiz-erros') {
         await handleStartCadernoErros();
     }
@@ -213,9 +211,8 @@ appContent.addEventListener('click', async (e) => {
 
     // --- Ações de Aluno (Resetar) ---
     if (action === 'resetar-desempenho') {
-        await handleResetarDesempenho(); // O "bomba nuclear"
+        await handleResetarDesempenho(); 
     }
-    // (NOVO) Resets individuais
     if (action === 'limpar-caderno-erros') {
         await handleLimparCadernoErros();
     }
@@ -233,7 +230,7 @@ appContent.addEventListener('click', async (e) => {
         } else if (quizReturnPath === 'simulados') {
             appContent.innerHTML = renderSimuladosMenu();
         } else {
-            loadDashboard(auth.currentUser); // 'menu', 'erros', 'acertos' voltam ao menu
+            loadDashboard(auth.currentUser); 
         }
     }
 });
@@ -316,7 +313,6 @@ function getFormattedDate(date) {
     return `${year}-${month}-${day}`;
 }
 
-// (SEM ALTERAÇÃO) Este é o reset GERAL
 async function handleResetarDesempenho() {
     if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso? Esta ação não pode ser desfeita e todas as suas estatísticas voltarão a zero.")) {
         return;
@@ -360,7 +356,6 @@ async function handleResetarDesempenho() {
     }
 }
 
-// (NOVO) Reset INDIVIDUAL - Erros
 async function handleLimparCadernoErros() {
     if (!confirm("Tem a certeza que quer limpar o seu Caderno de Erros? Todas as questões erradas serão removidas permanentemente.")) {
         return;
@@ -376,7 +371,6 @@ async function handleLimparCadernoErros() {
         errosSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
         await Promise.all(deletePromises);
 
-        // Recarrega o menu do caderno de erros (que agora mostrará 0)
         await renderCadernoErrosMenu();
     } catch (error) {
         console.error("Erro ao limpar caderno de erros:", error);
@@ -384,7 +378,6 @@ async function handleLimparCadernoErros() {
     }
 }
 
-// (NOVO) Reset INDIVIDUAL - Acertos
 async function handleLimparCadernoAcertos() {
     if (!confirm("Tem a certeza que quer limpar o seu Caderno de Acertos?")) {
         return;
@@ -400,7 +393,6 @@ async function handleLimparCadernoAcertos() {
         acertosSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
         await Promise.all(deletePromises);
 
-        // Recarrega o menu do caderno de acertos (que agora mostrará 0)
         await renderCadernoAcertosMenu();
     } catch (error) {
         console.error("Erro ao limpar caderno de acertos:", error);
@@ -685,7 +677,6 @@ async function handleStartSimuladoAssertivo() {
     }
 }
 
-// (MODIFICADO) Agora apenas inicia o quiz, a contagem é feita no menu
 async function handleStartCadernoErros() {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -697,9 +688,6 @@ async function handleStartCadernoErros() {
         querySnapshot.forEach((doc) => {
             questoesArray.push({ ...doc.data(), docId: doc.id });
         });
-
-        // Esta parte foi movida para o 'renderCadernoErrosMenu'
-        // if (questoesArray.length === 0) { ... } 
         
         metaQuestoesDoDia = questoesArray.length;
         quizQuestoes = questoesArray; 
@@ -719,7 +707,6 @@ async function handleStartCadernoErros() {
     }
 }
 
-// (MODIFICADO) Agora apenas inicia o quiz, a contagem é feita no menu
 async function handleStartCadernoAcertos() {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -858,6 +845,7 @@ function renderAdminDashboard(userData) {
     `;
 }
 
+// (ATUALIZADO) Adiciona "Caderno de Acertos"
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const menuItemStyle = "bg-gray-800 rounded-lg shadow-xl border border-gray-700 transition duration-300 ease-in-out transform hover:border-blue-400 hover:scale-[1.02] cursor-pointer";
@@ -1158,40 +1146,23 @@ function renderSimuladosMenu() {
     const selectStyle = "w-full p-3 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-blue-500 focus:ring-blue-500";
 
     const edicoes = [
-        { display: "XXXVIII", num: "38", rom: "XXXVIII" },
-        { display: "XXXVII", num: "37", rom: "XXXVII" },
-        { display: "XXXVI", num: "36", rom: "XXXVI" },
-        { display: "XXXV", num: "35", rom: "XXXV" },
-        { display: "XXXIV", num: "34", rom: "XXXIV" },
-        { display: "XXXIII", num: "33", rom: "XXXIII" },
-        { display: "XXXII", num: "32", rom: "XXXII" },
-        { display: "XXXI", num: "31", rom: "XXXI" },
-        { display: "XXX", num: "30", rom: "XXX" },
-        { display: "XXIX", num: "29", rom: "XXIX" },
-        { display: "XXVIII", num: "28", rom: "XXVIII" },
-        { display: "XXVII", num: "27", rom: "XXVII" },
-        { display: "XXVI", num: "26", rom: "XXVI" },
-        { display: "XXV", num: "25", rom: "XXV" },
-        { display: "XXIV", num: "24", rom: "XXIV" },
-        { display: "XXIII", num: "23", rom: "XXIII" },
-        { display: "XXII", num: "22", rom: "XXII" },
-        { display: "XXI", num: "21", rom: "XXI" },
-        { display: "XX", num: "20", rom: "XX" },
-        { display: "XIX", num: "19", rom: "XIX" },
-        { display: "XVIII", num: "18", rom: "XVIII" },
-        { display: "XVII", num: "17", rom: "XVII" },
-        { display: "XVI", num: "16", rom: "XVI" },
-        { display: "XV", num: "15", rom: "XV" },
-        { display: "XIV", num: "14", rom: "XIV" },
-        { display: "XIII", num: "13", rom: "XIII" },
-        { display: "XII", num: "12", rom: "XII" },
-        { display: "XI", num: "11", rom: "XI" },
-        { display: "X", num: "10", rom: "X" },
-        { display: "IX", num: "9", rom: "IX" },
-        { display: "VIII", num: "8", rom: "VIII" },
-        { display: "VII", num: "7", rom: "VII" },
-        { display: "VI", num: "6", rom: "VI" },
-        { display: "V", num: "5", rom: "V" }
+        { display: "XXXVIII", num: "38", rom: "XXXVIII" }, { display: "XXXVII", num: "37", rom: "XXXVII" },
+        { display: "XXXVI", num: "36", rom: "XXXVI" }, { display: "XXXV", num: "35", rom: "XXXV" },
+        { display: "XXXIV", num: "34", rom: "XXXIV" }, { display: "XXXIII", num: "33", rom: "XXXIII" },
+        { display: "XXXII", num: "32", rom: "XXXII" }, { display: "XXXI", num: "31", rom: "XXXI" },
+        { display: "XXX", num: "30", rom: "XXX" }, { display: "XXIX", num: "29", rom: "XXIX" },
+        { display: "XXVIII", num: "28", rom: "XXVIII" }, { display: "XXVII", num: "27", rom: "XXVII" },
+        { display: "XXVI", num: "26", rom: "XXVI" }, { display: "XXV", num: "25", rom: "XXV" },
+        { display: "XXIV", num: "24", rom: "XXIV" }, { display: "XXIII", num: "23", rom: "XXIII" },
+        { display: "XXII", num: "22", rom: "XXII" }, { display: "XXI", num: "21", rom: "XXI" },
+        { display: "XX", num: "20", rom: "XX" }, { display: "XIX", num: "19", rom: "XIX" },
+        { display: "XVIII", num: "18", rom: "XVIII" }, { display: "XVII", num: "17", rom: "XVII" },
+        { display: "XVI", num: "16", rom: "XVI" }, { display: "XV", num: "15", rom: "XV" },
+        { display: "XIV", num: "14", rom: "XIV" }, { display: "XIII", num: "13", rom: "XIII" },
+        { display: "XII", num: "12", rom: "XII" }, { display: "XI", num: "11", rom: "XI" },
+        { display: "X", num: "10", rom: "X" }, { display: "IX", num: "9", rom: "IX" },
+        { display: "VIII", num: "8", rom: "VIII" }, { display: "VII", num: "7", rom: "VII" },
+        { display: "VI", num: "6", rom: "VI" }, { display: "V", num: "5", rom: "V" }
     ];
     
     return `
