@@ -1,12 +1,13 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.26 - Correção do Cronómetro e Relatório)
+ * ARQUIVO: js/main.js (VERSÃO 5.27 - Caderno de Acertos)
  *
  * NOVIDADES:
- * - O cronómetro agora persiste entre as questões.
- * - Ao final do tempo, o quiz é encerrado automaticamente.
- * - Ao finalizar, um relatório de desempenho (acertos, erros, %)
- * é exibido.
+ * - Adicionado o "Caderno de Acertos".
+ * - 'handleConfirmarResposta' agora salva questões acertadas
+ * na coleção 'questoes_acertadas'.
+ * - Adicionada a função 'handleStartCadernoAcertos'.
+ * - Adicionado novo card "Caderno de Acertos" (Verde) ao menu.
  * ========================================================
  */
 
@@ -46,9 +47,8 @@ let quizReturnPath = 'menu';
 let quizTitle = 'Estudo'; 
 let anotacaoDebounceTimer = null; 
 
-// (NOVO) Variáveis de estado para o relatório e cronómetro
 let quizReport = { acertos: 0, erros: 0, total: 0 };
-let quizTempoRestante = null; // Tempo em segundos
+let quizTempoRestante = null; 
 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
@@ -63,8 +63,8 @@ onAuthStateChanged(auth, (user) => {
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
 async function loadDashboard(user) {
-    if (cronometroInterval) clearInterval(cronometroInterval); // Limpa qualquer timer ao voltar ao menu
-    quizTempoRestante = null; // Garante que o timer não aparece
+    if (cronometroInterval) clearInterval(cronometroInterval); 
+    quizTempoRestante = null; 
     try {
         appContent.innerHTML = renderLoadingState();
         const userDocRef = doc(db, 'users', user.uid);
@@ -169,6 +169,11 @@ appContent.addEventListener('click', async (e) => {
         quizReturnPath = 'erros';
         await handleStartCadernoErros();
     }
+    // (NOVO) Ação do Caderno de Acertos
+    if (action === 'show-caderno-acertos') {
+        quizReturnPath = 'acertos';
+        await handleStartCadernoAcertos();
+    }
     if (action === 'show-anotacoes-menu') {
         appContent.innerHTML = renderAnotacoesMenu();
     }
@@ -185,7 +190,7 @@ appContent.addEventListener('click', async (e) => {
     }
     if (action === 'start-simulado-edicao-dropdown') {
         const selectEl = document.getElementById('select-simulado-edicao');
-        const valor = selectEl.value; // ex: "31,XXXI"
+        const valor = selectEl.value; 
         
         if (valor) { 
             const [num, rom] = valor.split(','); 
@@ -203,7 +208,6 @@ appContent.addEventListener('click', async (e) => {
     if (action === 'confirmar-resposta') { await handleConfirmarResposta(); }
     if (action === 'proxima-questao') { await handleProximaQuestao(); }
     if (action === 'sair-quiz') {
-        // A lógica de Sair (seja do relatório ou do quiz)
         if (quizReturnPath === 'free-study') {
             appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
         } else if (quizReturnPath === 'simulados') {
@@ -247,7 +251,7 @@ async function handleCreateQuestionSubmit(form) {
         const formData = new FormData(form);
         const questaoData = {
             materia: formData.get('materia'),
-            edicao: formData.get('edicao'), // ex: "OAB-XXXI" ou "XXXI"
+            edicao: formData.get('edicao'), 
             tema: formData.get('tema'),
             enunciado: formData.get('enunciado'),
             alternativas: { A: formData.get('alt_a'), B: formData.get('alt_b'), C: formData.get('alt_c'), D: formData.get('alt_d') },
@@ -292,6 +296,7 @@ function getFormattedDate(date) {
     return `${year}-${month}-${day}`;
 }
 
+// (ATUALIZADO) Reseta também o caderno de acertos
 async function handleResetarDesempenho() {
     if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso? Esta ação não pode ser desfeita e todas as suas estatísticas voltarão a zero.")) {
         return;
@@ -315,6 +320,11 @@ async function handleResetarDesempenho() {
         const anotacoesRef = collection(userDocRef, 'anotacoes');
         const anotacoesSnapshot = await getDocs(anotacoesRef);
         anotacoesSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
+        
+        // (NOVO) Apaga caderno de acertos
+        const acertosRef = collection(userDocRef, 'questoes_acertadas');
+        const acertosSnapshot = await getDocs(acertosRef);
+        acertosSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
         
         await Promise.all(deletePromises);
 
@@ -350,7 +360,6 @@ async function handleSavePlannerSetup(form) {
         botao.textContent = 'Erro ao salvar!';
     }
 }
-
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -379,7 +388,6 @@ async function handleStartStudySession(materia) {
         respostaConfirmada = false;
         quizTitle = `Estudo: ${materia.replace('_', ' ')}`;
         
-        // (NOVO) Reseta o relatório e o cronómetro
         quizReport = { acertos: 0, erros: 0, total: 0 };
         quizTempoRestante = null; 
 
@@ -391,7 +399,6 @@ async function handleStartStudySession(materia) {
     }
 }
 
-// (NOVO) Função para centralizar o fim do quiz
 async function finalizarQuiz() {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null;
@@ -402,7 +409,6 @@ async function finalizarQuiz() {
     if (quizReturnPath === 'menu') { 
         textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões!`;
         textoBotao = "Voltar ao Menu Principal";
-        // Atualiza o ciclo do planner
         try {
             const user = auth.currentUser;
             const userDocRef = doc(db, 'users', user.uid);
@@ -421,6 +427,11 @@ async function finalizarQuiz() {
         textoFinal = `Você completou sua revisão de ${quizReport.total} questões.`;
         textoBotao = "Voltar ao Menu Principal";
     }
+    // (NOVO) Mensagem para caderno de acertos
+    if (quizReturnPath === 'acertos') {
+        textoFinal = `Você completou sua revisão de ${quizReport.total} questões.`;
+        textoBotao = "Voltar ao Menu Principal";
+    }
     if (quizReturnPath === 'free-study') {
          textoFinal = `Você completou ${quizReport.total} questões.`;
          textoBotao = "Voltar ao Estudo Livre";
@@ -432,19 +443,18 @@ async function finalizarQuiz() {
 async function handleProximaQuestao() {
     quizIndexAtual++; 
     
-    // Verifica se o quiz acabou (pelo número de questões)
     const quizTerminou = quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia);
 
     if (quizTerminou) {
-        finalizarQuiz(); // Chama a nova função de finalizar
+        finalizarQuiz(); 
     } else {
-        // Continua o quiz
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        renderQuiz(); // Renderiza a próxima questão (o timer será redesenhado)
+        renderQuiz(); 
     }
 }
 
+// (ATUALIZADO) Salva acertos e remove erros
 async function handleConfirmarResposta() { 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
@@ -457,7 +467,6 @@ async function handleConfirmarResposta() {
     const correta = questaoAtual.correta;
     const acertou = alternativaSelecionada === correta;
     
-    // (NOVO) Atualiza o relatório da sessão
     quizReport.total++;
     if (acertou) {
         quizReport.acertos++;
@@ -466,24 +475,32 @@ async function handleConfirmarResposta() {
     }
     
     try {
-        // Salva o progresso GERAL (no Firestore)
         await salvarProgresso(questaoAtual.materia, acertou);
 
         const user = auth.currentUser;
         const questaoId = questaoAtual.docId || questaoAtual.id; 
         
         if (questaoId) {
+            // (NOVO) Define as duas referências
             const erroRef = doc(db, 'users', user.uid, 'questoes_erradas', questaoId);
+            const acertoRef = doc(db, 'users', user.uid, 'questoes_acertadas', questaoId);
+
             if (!acertou) {
-                await setDoc(erroRef, questaoAtual); // Adiciona ao caderno de erros
-            } else if (quizReturnPath === 'erros') {
-                await deleteDoc(erroRef); // Se acertou e estava no caderno, remove
+                // Se errou, salva no erro e apaga do acerto (caso estivesse lá)
+                await setDoc(erroRef, questaoAtual);
+                await deleteDoc(acertoRef); 
+            } else {
+                // Se acertou, salva no acerto
+                await setDoc(acertoRef, questaoAtual);
+                // E apaga do erro (se estava lá, ou se estava no quiz 'erros')
+                await deleteDoc(erroRef);
             }
         }
     } catch (error) {
-        console.error("Erro ao salvar progresso ou erro:", error);
+        console.error("Erro ao salvar progresso/erro/acerto:", error);
     }
 
+    // --- Renderização do gabarito (sem alteração) ---
     const alternativasEls = document.querySelectorAll('[data-alternativa]');
     alternativasEls.forEach(el => {
         const alt = el.dataset.alternativa;
@@ -520,18 +537,10 @@ async function salvarProgresso(materia, acertou) {
 async function handleStartSimulado(num, rom) { 
     appContent.innerHTML = renderLoadingState(); 
     
-    // Gera as 4 variações de nome
-    const variacoes = [
-        `OAB-${num}`, // "OAB-31"
-        num,         // "31"
-        `OAB-${rom}`, // "OAB-XXXI"
-        rom          // "XXXI"
-    ];
+    const variacoes = [ `OAB-${num}`, num, `OAB-${rom}`, rom ];
 
     try {
         const questoesRef = collection(db, 'questoes');
-        
-        // Faz um query com o operador 'in'
         const q = query(questoesRef, where("edicao", "in", variacoes));
         
         const querySnapshot = await getDocs(q);
@@ -551,14 +560,13 @@ async function handleStartSimulado(num, rom) {
         quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
-        quizTitle = `Simulado Exame ${rom}`; // Usa o romano para o título
+        quizTitle = `Simulado Exame ${rom}`; 
         
-        // (NOVO) Reseta o relatório e define o cronómetro
         quizReport = { acertos: 0, erros: 0, total: 0 };
-        quizTempoRestante = 5 * 60 * 60; // 5 horas em segundos
+        quizTempoRestante = 5 * 60 * 60; 
 
-        renderQuiz(); // Desenha a primeira questão
-        startCronometro(); // Inicia o cronómetro
+        renderQuiz(); 
+        startCronometro(); 
 
     } catch (error) {
         console.error("Erro ao carregar simulado:", error);
@@ -605,9 +613,8 @@ async function handleStartSimuladoAssertivo() {
         respostaConfirmada = false;
         quizTitle = 'Simulado Assertivo';
         
-        // (NOVO) Reseta o relatório e define o cronómetro
         quizReport = { acertos: 0, erros: 0, total: 0 };
-        quizTempoRestante = 5 * 60 * 60; // 5 horas
+        quizTempoRestante = 5 * 60 * 60; 
 
         renderQuiz(); 
         startCronometro();
@@ -649,7 +656,6 @@ async function handleStartCadernoErros() {
         respostaConfirmada = false;
         quizTitle = `Caderno de Erros`;
 
-        // (NOVO) Reseta o relatório e o cronómetro
         quizReport = { acertos: 0, erros: 0, total: 0 };
         quizTempoRestante = null;
 
@@ -660,6 +666,50 @@ async function handleStartCadernoErros() {
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar os seus erros: ${error.message}</p>${returnButtonHtml}`;
     }
 }
+
+// (NOVA FUNÇÃO) Caderno de Acertos
+async function handleStartCadernoAcertos() {
+    appContent.innerHTML = renderLoadingState(); 
+    try {
+        const user = auth.currentUser;
+        const questoesRef = collection(db, 'users', user.uid, 'questoes_acertadas'); // <-- Nova coleção
+        const querySnapshot = await getDocs(questoesRef);
+        
+        const questoesArray = [];
+        querySnapshot.forEach((doc) => {
+            questoesArray.push({ ...doc.data(), docId: doc.id });
+        });
+
+        if (questoesArray.length === 0) {
+            let returnButtonHtml = getVoltarButtonHtml(); 
+            appContent.innerHTML = `
+                <div class="text-center">
+                    <h2 class="text-2xl font-bold text-white mb-4">Caderno de Acertos</h2>
+                    <p class="text-gray-300 mb-6">O seu caderno de acertos está vazio. Comece a responder questões!</p>
+                    ${returnButtonHtml}
+                </div>
+            `;
+            return;
+        }
+        
+        metaQuestoesDoDia = questoesArray.length;
+        quizQuestoes = questoesArray; 
+        quizIndexAtual = 0;        
+        alternativaSelecionada = null;
+        respostaConfirmada = false;
+        quizTitle = `Caderno de Acertos`;
+
+        quizReport = { acertos: 0, erros: 0, total: 0 };
+        quizTempoRestante = null;
+
+        renderQuiz(); 
+    } catch (error) {
+        console.error("Erro ao carregar caderno de acertos:", error);
+        let returnButtonHtml = getVoltarButtonHtml(); 
+        appContent.innerHTML = `<p class="text-red-400">Erro ao carregar os seus acertos: ${error.message}</p>${returnButtonHtml}`;
+    }
+}
+
 
 async function handleSalvarAnotacao(materia, conteudo) {
     if (!materia) return;
@@ -743,14 +793,13 @@ function startCronometro() {
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
+// (ATUALIZADO)
 function getVoltarButtonHtml() {
     if (quizReturnPath === 'free-study') {
         return `<button data-action="show-free-study" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Estudo Livre</button>`;
     } else if (quizReturnPath === 'simulados') {
          return `<button data-action="show-simulados-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar aos Simulados</button>`;
-    } else if (quizReturnPath === 'erros') {
-         return `<button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
-    } else {
+    } else { // 'menu', 'erros', 'acertos'
          return `<button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
     }
 }
@@ -770,6 +819,7 @@ function renderAdminDashboard(userData) {
     `;
 }
 
+// (ATUALIZADO) Adiciona o card "Caderno de Acertos"
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const menuItemStyle = "bg-gray-800 rounded-lg shadow-xl border border-gray-700 transition duration-300 ease-in-out transform hover:border-blue-400 hover:scale-[1.02] cursor-pointer";
@@ -829,13 +879,23 @@ async function renderStudentDashboard_Menu(userData) {
 
                     <div data-action="show-guided-planner" class="${menuItemStyle} p-6 flex items-center">
                         <div class="mr-6 flex-shrink-0">
-                            <svg class="w-12 h-12 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Z" />
-                            </svg>
+                            <svg class="w-12 h-12 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Z" /></svg>
                         </div>
                         <div>
                             <h3 class="text-xl font-bold text-blue-400 mb-1">Planner Guiado</h3>
                             <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p>
+                        </div>
+                    </div>
+
+                    <div data-action="show-caderno-acertos" class="${menuItemStyle} p-6 flex items-center border-green-500 hover:border-green-400">
+                        <div class="mr-6 flex-shrink-0">
+                            <svg class="w-12 h-12 text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-green-400 mb-1">Caderno de Acertos</h3>
+                            <p class="text-gray-300">Revise as questões que você acertou para reforçar o conhecimento.</p>
                         </div>
                     </div>
 
