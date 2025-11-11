@@ -1,13 +1,14 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.27 - Caderno de Acertos)
+ * ARQUIVO: js/main.js (VERSÃO 5.28 - Controlo de Reset Granular)
  *
  * NOVIDADES:
- * - Adicionado o "Caderno de Acertos".
- * - 'handleConfirmarResposta' agora salva questões acertadas
- * na coleção 'questoes_acertadas'.
- * - Adicionada a função 'handleStartCadernoAcertos'.
- * - Adicionado novo card "Caderno de Acertos" (Verde) ao menu.
+ * - Clicar em "Caderno de Erros" ou "Acertos" agora leva
+ * a um novo menu (renderCadernoErrosMenu / renderCadernoAcertosMenu).
+ * - Adicionados botões "Limpar Caderno" nessas páginas.
+ * - Adicionadas novas funções (handleLimparCadernoErros / Acertos)
+ * para apagar apenas essas coleções.
+ * - O botão "Resetar todo o desempenho" (geral) foi mantido.
  * ========================================================
  */
 
@@ -145,7 +146,7 @@ appContent.addEventListener('click', async (e) => {
         await handleDeleteQuestion(docId, actionButton);
     }
 
-    // --- Ações de Aluno ---
+    // --- Ações de Aluno (Menus) ---
     if (action === 'show-guided-planner') {
         quizReturnPath = 'menu'; 
         const user = auth.currentUser;
@@ -167,12 +168,11 @@ appContent.addEventListener('click', async (e) => {
     }
     if (action === 'show-caderno-erros') {
         quizReturnPath = 'erros';
-        await handleStartCadernoErros();
+        await renderCadernoErrosMenu(); // (MODIFICADO) Mostra o menu de erros
     }
-    // (NOVO) Ação do Caderno de Acertos
     if (action === 'show-caderno-acertos') {
         quizReturnPath = 'acertos';
-        await handleStartCadernoAcertos();
+        await renderCadernoAcertosMenu(); // (MODIFICADO) Mostra o menu de acertos
     }
     if (action === 'show-anotacoes-menu') {
         appContent.innerHTML = renderAnotacoesMenu();
@@ -184,6 +184,8 @@ appContent.addEventListener('click', async (e) => {
     if (action === 'student-voltar-menu') {
         loadDashboard(auth.currentUser); 
     }
+
+    // --- Ações de Aluno (Iniciar Quizzes) ---
     if (action === 'start-study-session') {
         const materia = actionButton.dataset.materia;
         await handleStartStudySession(materia);
@@ -200,9 +202,27 @@ appContent.addEventListener('click', async (e) => {
     if (action === 'start-simulado-assertivo') { 
         await handleStartSimuladoAssertivo();
     }
-    if (action === 'resetar-desempenho') {
-        await handleResetarDesempenho();
+    // (NOVO) Iniciar quizzes dos cadernos
+    if (action === 'start-quiz-erros') {
+        await handleStartCadernoErros();
     }
+    if (action === 'start-quiz-acertos') {
+        await handleStartCadernoAcertos();
+    }
+    
+
+    // --- Ações de Aluno (Resetar) ---
+    if (action === 'resetar-desempenho') {
+        await handleResetarDesempenho(); // O "bomba nuclear"
+    }
+    // (NOVO) Resets individuais
+    if (action === 'limpar-caderno-erros') {
+        await handleLimparCadernoErros();
+    }
+    if (action === 'limpar-caderno-acertos') {
+        await handleLimparCadernoAcertos();
+    }
+
 
     // --- Ações do Quiz ---
     if (action === 'confirmar-resposta') { await handleConfirmarResposta(); }
@@ -213,7 +233,7 @@ appContent.addEventListener('click', async (e) => {
         } else if (quizReturnPath === 'simulados') {
             appContent.innerHTML = renderSimuladosMenu();
         } else {
-            loadDashboard(auth.currentUser); 
+            loadDashboard(auth.currentUser); // 'menu', 'erros', 'acertos' voltam ao menu
         }
     }
 });
@@ -296,7 +316,7 @@ function getFormattedDate(date) {
     return `${year}-${month}-${day}`;
 }
 
-// (ATUALIZADO) Reseta também o caderno de acertos
+// (SEM ALTERAÇÃO) Este é o reset GERAL
 async function handleResetarDesempenho() {
     if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso? Esta ação não pode ser desfeita e todas as suas estatísticas voltarão a zero.")) {
         return;
@@ -321,7 +341,6 @@ async function handleResetarDesempenho() {
         const anotacoesSnapshot = await getDocs(anotacoesRef);
         anotacoesSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
         
-        // (NOVO) Apaga caderno de acertos
         const acertosRef = collection(userDocRef, 'questoes_acertadas');
         const acertosSnapshot = await getDocs(acertosRef);
         acertosSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
@@ -338,6 +357,54 @@ async function handleResetarDesempenho() {
     } catch (error) {
         console.error("Erro ao resetar desempenho:", error);
         appContent.innerHTML = `<p class="text-red-400">Erro ao resetar seu progresso: ${error.message}</p>`;
+    }
+}
+
+// (NOVO) Reset INDIVIDUAL - Erros
+async function handleLimparCadernoErros() {
+    if (!confirm("Tem a certeza que quer limpar o seu Caderno de Erros? Todas as questões erradas serão removidas permanentemente.")) {
+        return;
+    }
+    appContent.innerHTML = renderLoadingState();
+    try {
+        const user = auth.currentUser;
+        const userDocRef = doc(db, 'users', user.uid);
+        const errosRef = collection(userDocRef, 'questoes_erradas');
+        const errosSnapshot = await getDocs(errosRef);
+        
+        const deletePromises = [];
+        errosSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
+        await Promise.all(deletePromises);
+
+        // Recarrega o menu do caderno de erros (que agora mostrará 0)
+        await renderCadernoErrosMenu();
+    } catch (error) {
+        console.error("Erro ao limpar caderno de erros:", error);
+        appContent.innerHTML = `<p class="text-red-400">Erro ao limpar o caderno: ${error.message}</p>`;
+    }
+}
+
+// (NOVO) Reset INDIVIDUAL - Acertos
+async function handleLimparCadernoAcertos() {
+    if (!confirm("Tem a certeza que quer limpar o seu Caderno de Acertos?")) {
+        return;
+    }
+    appContent.innerHTML = renderLoadingState();
+    try {
+        const user = auth.currentUser;
+        const userDocRef = doc(db, 'users', user.uid);
+        const acertosRef = collection(userDocRef, 'questoes_acertadas');
+        const acertosSnapshot = await getDocs(acertosRef);
+        
+        const deletePromises = [];
+        acertosSnapshot.forEach((doc) => deletePromises.push(deleteDoc(doc.ref)));
+        await Promise.all(deletePromises);
+
+        // Recarrega o menu do caderno de acertos (que agora mostrará 0)
+        await renderCadernoAcertosMenu();
+    } catch (error) {
+        console.error("Erro ao limpar caderno de acertos:", error);
+        appContent.innerHTML = `<p class="text-red-400">Erro ao limpar o caderno: ${error.message}</p>`;
     }
 }
 
@@ -427,7 +494,6 @@ async function finalizarQuiz() {
         textoFinal = `Você completou sua revisão de ${quizReport.total} questões.`;
         textoBotao = "Voltar ao Menu Principal";
     }
-    // (NOVO) Mensagem para caderno de acertos
     if (quizReturnPath === 'acertos') {
         textoFinal = `Você completou sua revisão de ${quizReport.total} questões.`;
         textoBotao = "Voltar ao Menu Principal";
@@ -454,7 +520,6 @@ async function handleProximaQuestao() {
     }
 }
 
-// (ATUALIZADO) Salva acertos e remove erros
 async function handleConfirmarResposta() { 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
@@ -481,18 +546,14 @@ async function handleConfirmarResposta() {
         const questaoId = questaoAtual.docId || questaoAtual.id; 
         
         if (questaoId) {
-            // (NOVO) Define as duas referências
             const erroRef = doc(db, 'users', user.uid, 'questoes_erradas', questaoId);
             const acertoRef = doc(db, 'users', user.uid, 'questoes_acertadas', questaoId);
 
             if (!acertou) {
-                // Se errou, salva no erro e apaga do acerto (caso estivesse lá)
                 await setDoc(erroRef, questaoAtual);
                 await deleteDoc(acertoRef); 
             } else {
-                // Se acertou, salva no acerto
                 await setDoc(acertoRef, questaoAtual);
-                // E apaga do erro (se estava lá, ou se estava no quiz 'erros')
                 await deleteDoc(erroRef);
             }
         }
@@ -500,7 +561,6 @@ async function handleConfirmarResposta() {
         console.error("Erro ao salvar progresso/erro/acerto:", error);
     }
 
-    // --- Renderização do gabarito (sem alteração) ---
     const alternativasEls = document.querySelectorAll('[data-alternativa]');
     alternativasEls.forEach(el => {
         const alt = el.dataset.alternativa;
@@ -625,6 +685,7 @@ async function handleStartSimuladoAssertivo() {
     }
 }
 
+// (MODIFICADO) Agora apenas inicia o quiz, a contagem é feita no menu
 async function handleStartCadernoErros() {
     appContent.innerHTML = renderLoadingState(); 
     try {
@@ -637,17 +698,8 @@ async function handleStartCadernoErros() {
             questoesArray.push({ ...doc.data(), docId: doc.id });
         });
 
-        if (questoesArray.length === 0) {
-            let returnButtonHtml = getVoltarButtonHtml(); 
-            appContent.innerHTML = `
-                <div class="text-center">
-                    <h2 class="text-2xl font-bold text-white mb-4">Parabéns!</h2>
-                    <p class="text-gray-300 mb-6">O seu caderno de erros está vazio.</p>
-                    ${returnButtonHtml}
-                </div>
-            `;
-            return;
-        }
+        // Esta parte foi movida para o 'renderCadernoErrosMenu'
+        // if (questoesArray.length === 0) { ... } 
         
         metaQuestoesDoDia = questoesArray.length;
         quizQuestoes = questoesArray; 
@@ -667,30 +719,18 @@ async function handleStartCadernoErros() {
     }
 }
 
-// (NOVA FUNÇÃO) Caderno de Acertos
+// (MODIFICADO) Agora apenas inicia o quiz, a contagem é feita no menu
 async function handleStartCadernoAcertos() {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const user = auth.currentUser;
-        const questoesRef = collection(db, 'users', user.uid, 'questoes_acertadas'); // <-- Nova coleção
+        const questoesRef = collection(db, 'users', user.uid, 'questoes_acertadas');
         const querySnapshot = await getDocs(questoesRef);
         
         const questoesArray = [];
         querySnapshot.forEach((doc) => {
             questoesArray.push({ ...doc.data(), docId: doc.id });
         });
-
-        if (questoesArray.length === 0) {
-            let returnButtonHtml = getVoltarButtonHtml(); 
-            appContent.innerHTML = `
-                <div class="text-center">
-                    <h2 class="text-2xl font-bold text-white mb-4">Caderno de Acertos</h2>
-                    <p class="text-gray-300 mb-6">O seu caderno de acertos está vazio. Comece a responder questões!</p>
-                    ${returnButtonHtml}
-                </div>
-            `;
-            return;
-        }
         
         metaQuestoesDoDia = questoesArray.length;
         quizQuestoes = questoesArray; 
@@ -793,13 +833,12 @@ function startCronometro() {
 
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
 
-// (ATUALIZADO)
 function getVoltarButtonHtml() {
     if (quizReturnPath === 'free-study') {
         return `<button data-action="show-free-study" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Estudo Livre</button>`;
     } else if (quizReturnPath === 'simulados') {
          return `<button data-action="show-simulados-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar aos Simulados</button>`;
-    } else { // 'menu', 'erros', 'acertos'
+    } else { 
          return `<button data-action="student-voltar-menu" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>`;
     }
 }
@@ -819,7 +858,6 @@ function renderAdminDashboard(userData) {
     `;
 }
 
-// (ATUALIZADO) Adiciona o card "Caderno de Acertos"
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const menuItemStyle = "bg-gray-800 rounded-lg shadow-xl border border-gray-700 transition duration-300 ease-in-out transform hover:border-blue-400 hover:scale-[1.02] cursor-pointer";
@@ -1188,6 +1226,85 @@ function renderSimuladosMenu() {
         </div>
     `;
 }
+
+// (NOVO) Menu para o Caderno de Erros
+async function renderCadernoErrosMenu() {
+    appContent.innerHTML = renderLoadingState();
+    let numErros = 0;
+    try {
+        const user = auth.currentUser;
+        const questoesRef = collection(db, 'users', user.uid, 'questoes_erradas');
+        const querySnapshot = await getDocs(questoesRef);
+        numErros = querySnapshot.size;
+    } catch (e) { console.error("Erro ao contar erros:", e); }
+
+    const cardStyle = "bg-gray-800 p-8 rounded-lg shadow-xl border border-gray-700 max-w-lg mx-auto text-center";
+
+    let html = `
+        <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
+        <div class="${cardStyle}">
+            <h2 class="text-3xl font-bold text-red-400 mb-4">Caderno de Erros</h2>
+    `;
+
+    if (numErros === 0) {
+        html += `<p class="text-gray-300 text-lg">Parabéns! O seu caderno de erros está vazio.</p>`;
+    } else {
+        html += `
+            <p class="text-gray-300 text-lg mb-6">
+                Você tem <strong class="text-2xl text-white">${numErros}</strong> ${numErros === 1 ? 'questão' : 'questões'} para rever.
+            </p>
+            <button data-action="start-quiz-erros" class="w-full p-4 bg-red-600 text-white text-lg font-semibold rounded-lg hover:bg-red-700 transition duration-300 mb-4">
+                Iniciar Revisão dos Erros
+            </button>
+            <button data-action="limpar-caderno-erros" class="w-full text-sm text-center text-gray-400 hover:text-red-400 transition">
+                Limpar caderno de erros
+            </button>
+        `;
+    }
+
+    html += `</div>`;
+    appContent.innerHTML = html;
+}
+
+// (NOVO) Menu para o Caderno de Acertos
+async function renderCadernoAcertosMenu() {
+    appContent.innerHTML = renderLoadingState();
+    let numAcertos = 0;
+    try {
+        const user = auth.currentUser;
+        const questoesRef = collection(db, 'users', user.uid, 'questoes_acertadas');
+        const querySnapshot = await getDocs(questoesRef);
+        numAcertos = querySnapshot.size;
+    } catch (e) { console.error("Erro ao contar acertos:", e); }
+
+    const cardStyle = "bg-gray-800 p-8 rounded-lg shadow-xl border border-gray-700 max-w-lg mx-auto text-center";
+
+    let html = `
+        <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
+        <div class="${cardStyle}">
+            <h2 class="text-3xl font-bold text-green-400 mb-4">Caderno de Acertos</h2>
+    `;
+
+    if (numAcertos === 0) {
+        html += `<p class="text-gray-300 text-lg">O seu caderno de acertos está vazio. Comece a estudar!</p>`;
+    } else {
+        html += `
+            <p class="text-gray-300 text-lg mb-6">
+                Você tem <strong class="text-2xl text-white">${numAcertos}</strong> ${numAcertos === 1 ? 'questão' : 'questões'} acertadas para rever.
+            </p>
+            <button data-action="start-quiz-acertos" class="w-full p-4 bg-green-600 text-white text-lg font-semibold rounded-lg hover:bg-green-700 transition duration-300 mb-4">
+                Revisar Meus Acertos
+            </button>
+            <button data-action="limpar-caderno-acertos" class="w-full text-sm text-center text-gray-400 hover:text-red-400 transition">
+                Limpar caderno de acertos
+            </button>
+        `;
+    }
+
+    html += `</div>`;
+    appContent.innerHTML = html;
+}
+
 
 function renderQuiz() {
     const questaoAtual = quizQuestoes[quizIndexAtual];
