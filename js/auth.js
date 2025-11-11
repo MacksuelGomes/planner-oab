@@ -1,11 +1,10 @@
 /*
  * ========================================================
- * ARQUIVO: js/auth.js (VERSÃO 2.0)
- * O CÉREBRO DA AUTENTICAÇÃO E O "PORTEIRO" DO APP
+ * ARQUIVO: js/auth.js (VERSÃO 2.1 - Correção de Conflito)
  *
  * NOVIDADES:
- * - Adiciona importação e exportação do Firebase Storage.
- * - Adiciona link "Voltar" nos formulários de login.
+ * - Importa 'loadDashboard' do main.js
+ * - Chama 'loadDashboard' APÓS mostrar o ecrã da app.
  * ========================================================
  */
 
@@ -25,14 +24,14 @@ import {
     getDoc,
     setDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-// (NOVA IMPORTAÇÃO para o Gerenciador de Questões)
 import { 
     getStorage 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+// (NOVO) Importar a função de desenhar o dashboard
+import { loadDashboard } from './main.js'; 
 
 
 // --- [ PARTE 2: CONFIGURAÇÃO DO FIREBASE ] ---
-// (A sua configuração que já está correta)
 const firebaseConfig = {
     apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
     authDomain: "meu-planner-oab.firebaseapp.com",
@@ -47,7 +46,7 @@ const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const storage = getStorage(app); // (NOVA EXPORTAÇÃO)
+export const storage = getStorage(app); 
 
 // --- [ PARTE 4: SELETORES DO DOM (OS NOSSOS ECRÃS) ] ---
 const loadingScreen = document.getElementById('loading-screen');
@@ -73,6 +72,7 @@ function showScreen(screenId) {
 }
 
 // --- [ PARTE 6: O "PORTEIRO" (LISTENER DE AUTENTICAÇÃO) ] ---
+// (MODIFICADO)
 onAuthStateChanged(auth, async (user) => {
     try {
         if (user) {
@@ -81,7 +81,8 @@ onAuthStateChanged(auth, async (user) => {
 
             if (userDoc.exists()) {
                 userEmailElement.textContent = user.email;
-                showScreen('app');
+                showScreen('app'); // 1. Mostra o ecrã da app
+                loadDashboard(user); // 2. (NOVO) Chama o main.js para desenhar o conteúdo
             } else {
                 authScreen.innerHTML = renderProfileForm(user);
                 showScreen('auth');
@@ -159,8 +160,8 @@ authScreen.addEventListener('submit', async (e) => {
                 email: user.email,
                 criadoEm: new Date()
             });
-            userEmailElement.textContent = user.email;
-            showScreen('app');
+            // (Não precisamos chamar showScreen('app') ou loadDashboard() aqui,
+            // o onAuthStateChanged vai tratar disso automaticamente)
         } catch (error) {
             messageEl.textContent = "Erro ao guardar o perfil.";
         }
@@ -180,8 +181,6 @@ authScreen.addEventListener('submit', async (e) => {
 
 
 // --- [ PARTE 8: FUNÇÕES DE RENDERIZAÇÃO (HTML DOS FORMULÁRIOS) ] ---
-// (Com a sua alteração: link de registo removido e link de "Voltar" adicionado)
-
 function renderLoginForm(errorMsg = "") {
     return `
         <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
@@ -190,12 +189,12 @@ function renderLoginForm(errorMsg = "") {
                 <div>
                     <label for="email" class="block text-sm font-medium text-gray-300">Email</label>
                     <input type="email" id="email" name="email" required 
-                           class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                            class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
                 </div>
                 <div>
                     <label for="password" class="block text-sm font-medium text-gray-300">Senha</label>
                     <input type="password" id="password" name="password" required 
-                           class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                            class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
                 </div>
                 <div id="auth-message" class="text-red-400 text-sm">${errorMsg}</div>
                 <div>
@@ -226,12 +225,12 @@ function renderRegisterForm(errorMsg = "") {
                 <div>
                     <label for="email" class="block text-sm font-medium text-gray-300">Email</o>
                     <input type="email" id="email" name="email" required 
-                           class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                            class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
                 </div>
                 <div>
                     <label for="password" class="block text-sm font-medium text-gray-300">Senha</label>
                     <input type="password" id="password" name="password" required 
-                           class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                            class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
                 </div>
                 <div id="auth-message" class="text-red-400 text-sm">${errorMsg}</div>
                 <div>
@@ -256,8 +255,6 @@ function renderRegisterForm(errorMsg = "") {
 }
 
 function renderProfileForm(user, errorMsg = "") {
-    // (Não adicionamos o link de "Voltar" aqui de propósito,
-    // pois o utilizador deve completar o perfil ou fazer logout.)
     return `
         <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
             <h2 class="text-3xl font-bold text-center text-white">Quase lá!</h2>
@@ -269,7 +266,7 @@ function renderProfileForm(user, errorMsg = "") {
                 <div>
                     <label for="nome" class="block text-sm font-medium text-gray-300">Nome Completo</label>
                     <input type="text" id="nome" name="nome" required 
-                           class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                            class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
                 </div>
                 <div id="auth-message" class="text-red-400 text-sm">${errorMsg}</div>
                 <div>
@@ -291,7 +288,7 @@ function renderResetPasswordForm(errorMsg = "") {
                 <div>
                     <label for="email" class="block text-sm font-medium text-gray-300">Email</label>
                     <input type="email" id="email" name="email" required 
-                           class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                            class="w-full px-3 py-2 mt-1 text-gray-900 bg-gray-100 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
                 </div>
                 <div id="auth-message" class="text-red-400 text-sm">${errorMsg}</div>
                 <div>
