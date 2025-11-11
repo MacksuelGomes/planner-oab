@@ -1,10 +1,6 @@
 /*
  * ========================================================
  * ARQUIVO: js/auth.js (VERSÃO 2.1 - Correção de Conflito)
- *
- * NOVIDADES:
- * - Importa 'loadDashboard' do main.js
- * - Chama 'loadDashboard' APÓS mostrar o ecrã da app.
  * ========================================================
  */
 
@@ -72,7 +68,6 @@ function showScreen(screenId) {
 }
 
 // --- [ PARTE 6: O "PORTEIRO" (LISTENER DE AUTENTICAÇÃO) ] ---
-// (MODIFICADO)
 onAuthStateChanged(auth, async (user) => {
     try {
         if (user) {
@@ -160,8 +155,6 @@ authScreen.addEventListener('submit', async (e) => {
                 email: user.email,
                 criadoEm: new Date()
             });
-            // (Não precisamos chamar showScreen('app') ou loadDashboard() aqui,
-            // o onAuthStateChanged vai tratar disso automaticamente)
         } catch (error) {
             messageEl.textContent = "Erro ao guardar o perfil.";
         }
