@@ -1,19 +1,17 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.29 - Gráficos de Desempenho)
+ * ARQUIVO: js/main.js (VERSÃO 5.30 - Correção de Conflito)
  *
  * NOVIDADES:
- * - Adicionada a biblioteca Chart.js (no app.html).
- * - A lista de desempenho é agora um gráfico de barras
- * horizontal e interativo.
- * - Criada a nova função 'renderPerformanceChart' para
- * desenhar o gráfico.
+ * - REMOVIDO o 'onAuthStateChanged' local (Parte 5).
+ * - EXPORTADA a função 'loadDashboard' para ser
+ * chamada pelo 'auth.js'.
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
 import { auth, db } from './auth.js'; 
-import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+// (REMOVIDO) onAuthStateChanged daqui
 import { 
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
     setDoc, increment 
@@ -52,21 +50,17 @@ let quizTempoRestante = null;
 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
-onAuthStateChanged(auth, (user) => {
-    if (user) {
-        loadDashboard(user);
-    } else {
-        appContent.innerHTML = ''; 
-        if (cronometroInterval) clearInterval(cronometroInterval); 
-    }
-});
+// (TODA ESTA SEÇÃO FOI REMOVIDA PARA EVITAR CONFLITO COM AUTH.JS)
+
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
-async function loadDashboard(user) {
+// (MODIFICADO) Adicionado 'export'
+export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null; 
     try {
-        appContent.innerHTML = renderLoadingState();
+        // (REMOVIDO) O 'renderLoadingState' daqui, pois o auth.js já mostrou o ecrã
+        // appContent.innerHTML = renderLoadingState(); 
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
         
@@ -101,10 +95,12 @@ async function loadDashboard(user) {
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
-                // (MODIFICADO) Esta função agora desenha o gráfico no final
-                await renderStudentDashboard_Menu(userData);
+                appContent.innerHTML = await renderStudentDashboard_Menu(userData);
+                // (NOVO) Chama o renderChart DEPOIS que o HTML do menu for desenhado
+                await renderPerformanceChart();
             }
         } else {
+            // Este caso não deve acontecer se o auth.js funcionar bem, mas é uma segurança
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
         }
     } catch (error) { 
@@ -114,10 +110,13 @@ async function loadDashboard(user) {
 }
 
 // --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
+// (O restante do ficheiro .js (Partes 7, 8, 9 e 10) 
+// é exatamente o mesmo que a Versão 5.28 que lhe enviei)
 appContent.addEventListener('click', async (e) => {
     
     const actionButton = e.target.closest('[data-action]');
 
+    // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         if (!actionButton) { 
@@ -167,11 +166,11 @@ appContent.addEventListener('click', async (e) => {
     }
     if (action === 'show-caderno-erros') {
         quizReturnPath = 'erros';
-        await renderCadernoErrosMenu();
+        await renderCadernoErrosMenu(); 
     }
     if (action === 'show-caderno-acertos') {
         quizReturnPath = 'acertos';
-        await renderCadernoAcertosMenu();
+        await renderCadernoAcertosMenu(); 
     }
     if (action === 'show-anotacoes-menu') {
         appContent.innerHTML = renderAnotacoesMenu();
@@ -845,7 +844,6 @@ function renderAdminDashboard(userData) {
     `;
 }
 
-// (ATUALIZADO) Adiciona "Caderno de Acertos"
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const menuItemStyle = "bg-gray-800 rounded-lg shadow-xl border border-gray-700 transition duration-300 ease-in-out transform hover:border-blue-400 hover:scale-[1.02] cursor-pointer";
@@ -855,7 +853,8 @@ async function renderStudentDashboard_Menu(userData) {
     const progressoSnapshot = await getDocs(progressoRef);
     let totalResolvidasGlobal = 0;
     let totalAcertosGlobal = 0;
-    let materiaStatsHtml = ''; 
+    let chartLabels = [];
+    let chartData = []; 
 
     progressoSnapshot.forEach((doc) => {
         const materia = doc.id;
@@ -865,18 +864,12 @@ async function renderStudentDashboard_Menu(userData) {
         totalResolvidasGlobal += resolvidas;
         totalAcertosGlobal += acertos;
         const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
-
-        materiaStatsHtml += `
-            <div class="mb-3">
-                <div class="flex justify-between mb-1">
-                    <span class="text-sm font-medium text-blue-300 capitalize">${materia.replace('_', ' ')}</span>
-                    <span class="text-sm font-medium text-gray-300">${taxa}% (${acertos}/${resolvidas})</span>
-                </div>
-                <div class="w-full bg-gray-700 rounded-full h-2.5">
-                    <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${taxa}%"></div>
-                </div>
-            </div>
-        `;
+        
+        // (NOVO) Prepara os dados para o gráfico
+        if (resolvidas > 0) {
+            chartLabels.push(materia.replace('_', ' '));
+            chartData.push(taxa);
+        }
     });
 
     const taxaAcertoGlobal = (totalResolvidasGlobal > 0) 
@@ -886,7 +879,16 @@ async function renderStudentDashboard_Menu(userData) {
     const sequencia = userData.sequenciaDias || 0;
     // --- (FIM DA LÓGICA DE STATS) ---
 
-    return `
+    // (NOVO) Lógica para o HTML do gráfico
+    let desempenhoHtml = '';
+    if (chartLabels.length > 0) {
+        desempenhoHtml = `<canvas id="performanceChart"></canvas>`;
+    } else {
+        desempenhoHtml = `<p class="text-gray-400">Responda a algumas questões para ver o seu progresso aqui.</p>`;
+    }
+
+    // (ATUALIZADO) O HTML agora é assíncrono
+    const dashboardHtml = `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
         
         <div class="grid md:grid-cols-4 gap-6 mb-8">
@@ -902,7 +904,6 @@ async function renderStudentDashboard_Menu(userData) {
                 <h2 class="text-2xl font-bold text-white mb-6">O que vamos fazer hoje?</h2>
                 
                 <div class="space-y-6">
-
                     <div data-action="show-guided-planner" class="${menuItemStyle} p-6 flex items-center">
                         <div class="mr-6 flex-shrink-0">
                             <svg class="w-12 h-12 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Z" /></svg>
@@ -981,7 +982,7 @@ async function renderStudentDashboard_Menu(userData) {
             <div class="${cardStyle} md:col-span-1">
                 <h3 class="text-2xl font-bold text-white mb-6">Seu Desempenho</h3>
                 <div class="space-y-4">
-                    ${materiaStatsHtml || '<p class="text-gray-400">Responda a algumas questões para ver o seu progresso aqui.</p>'}
+                    ${desempenhoHtml} 
                 </div>
                 
                 <div class="mt-6 border-t border-gray-700 pt-4">
@@ -993,7 +994,70 @@ async function renderStudentDashboard_Menu(userData) {
             </div>
         </div>
     `;
+
+    // (ATUALIZADO) Renderiza o HTML primeiro, DEPOIS chama a função do gráfico
+    appContent.innerHTML = dashboardHtml;
+    if (chartLabels.length > 0) {
+        renderPerformanceChart(chartLabels, chartData);
+    }
 }
+
+// (NOVA FUNÇÃO) Desenha o Gráfico de Desempenho
+function renderPerformanceChart(labels, data) {
+    const ctx = document.getElementById('performanceChart');
+    if (!ctx) return; 
+
+    new Chart(ctx, {
+        type: 'bar', // Tipo de gráfico
+        data: {
+            labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)), // Capitaliza os nomes
+            datasets: [{
+                label: 'Taxa de Acerto (%)',
+                data: data,
+                backgroundColor: 'rgba(59, 130, 246, 0.7)', // Azul com transparência
+                borderColor: 'rgba(59, 130, 246, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y', // <-- Isto o torna horizontal
+            responsive: true,
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    max: 100, // Taxa vai de 0 a 100
+                    ticks: {
+                        color: '#9ca3af' // Cor dos números (cinza)
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)' // Linhas do grid
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: '#e5e7eb' // Cor das matérias (branco)
+                    },
+                    grid: {
+                        display: false // Esconde o grid vertical
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false // Esconde a legenda "Taxa de Acerto (%)"
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return ` Acerto: ${context.raw}%`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 
 function renderPlanner_TarefaDoDia(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -1198,7 +1262,6 @@ function renderSimuladosMenu() {
     `;
 }
 
-// (NOVO) Menu para o Caderno de Erros
 async function renderCadernoErrosMenu() {
     appContent.innerHTML = renderLoadingState();
     let numErros = 0;
@@ -1237,7 +1300,6 @@ async function renderCadernoErrosMenu() {
     appContent.innerHTML = html;
 }
 
-// (NOVO) Menu para o Caderno de Acertos
 async function renderCadernoAcertosMenu() {
     appContent.innerHTML = renderLoadingState();
     let numAcertos = 0;
