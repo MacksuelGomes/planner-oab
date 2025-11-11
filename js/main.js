@@ -1,17 +1,11 @@
 /*
  * ========================================================
  * ARQUIVO: js/main.js (VERSÃO 5.30 - Correção de Conflito)
- *
- * NOVIDADES:
- * - REMOVIDO o 'onAuthStateChanged' local (Parte 5).
- * - EXPORTADA a função 'loadDashboard' para ser
- * chamada pelo 'auth.js'.
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
 import { auth, db } from './auth.js'; 
-// (REMOVIDO) onAuthStateChanged daqui
 import { 
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
     setDoc, increment 
@@ -50,17 +44,13 @@ let quizTempoRestante = null;
 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
-// (TODA ESTA SEÇÃO FOI REMOVIDA PARA EVITAR CONFLITO COM AUTH.JS)
-
+// (REMOVIDO)
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
-// (MODIFICADO) Adicionado 'export'
 export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null; 
     try {
-        // (REMOVIDO) O 'renderLoadingState' daqui, pois o auth.js já mostrou o ecrã
-        // appContent.innerHTML = renderLoadingState(); 
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
         
@@ -96,11 +86,9 @@ export async function loadDashboard(user) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
                 appContent.innerHTML = await renderStudentDashboard_Menu(userData);
-                // (NOVO) Chama o renderChart DEPOIS que o HTML do menu for desenhado
                 await renderPerformanceChart();
             }
         } else {
-            // Este caso não deve acontecer se o auth.js funcionar bem, mas é uma segurança
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
         }
     } catch (error) { 
@@ -110,8 +98,6 @@ export async function loadDashboard(user) {
 }
 
 // --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
-// (O restante do ficheiro .js (Partes 7, 8, 9 e 10) 
-// é exatamente o mesmo que a Versão 5.28 que lhe enviei)
 appContent.addEventListener('click', async (e) => {
     
     const actionButton = e.target.closest('[data-action]');
@@ -865,9 +851,8 @@ async function renderStudentDashboard_Menu(userData) {
         totalAcertosGlobal += acertos;
         const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
         
-        // (NOVO) Prepara os dados para o gráfico
         if (resolvidas > 0) {
-            chartLabels.push(materia.replace('_', ' '));
+            chartLabels.push(materia.replace(/_/g, ' '));
             chartData.push(taxa);
         }
     });
@@ -879,7 +864,6 @@ async function renderStudentDashboard_Menu(userData) {
     const sequencia = userData.sequenciaDias || 0;
     // --- (FIM DA LÓGICA DE STATS) ---
 
-    // (NOVO) Lógica para o HTML do gráfico
     let desempenhoHtml = '';
     if (chartLabels.length > 0) {
         desempenhoHtml = `<canvas id="performanceChart"></canvas>`;
@@ -887,7 +871,6 @@ async function renderStudentDashboard_Menu(userData) {
         desempenhoHtml = `<p class="text-gray-400">Responda a algumas questões para ver o seu progresso aqui.</p>`;
     }
 
-    // (ATUALIZADO) O HTML agora é assíncrono
     const dashboardHtml = `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
         
@@ -982,7 +965,7 @@ async function renderStudentDashboard_Menu(userData) {
             <div class="${cardStyle} md:col-span-1">
                 <h3 class="text-2xl font-bold text-white mb-6">Seu Desempenho</h3>
                 <div class="space-y-4">
-                    ${desempenhoHtml} 
+                    ${desempenhoHtml}
                 </div>
                 
                 <div class="mt-6 border-t border-gray-700 pt-4">
@@ -994,11 +977,14 @@ async function renderStudentDashboard_Menu(userData) {
             </div>
         </div>
     `;
-
-    // (ATUALIZADO) Renderiza o HTML primeiro, DEPOIS chama a função do gráfico
+    
+    // (NOVO) Renderiza o HTML e DEPOIS chama a função do gráfico
     appContent.innerHTML = dashboardHtml;
     if (chartLabels.length > 0) {
-        renderPerformanceChart(chartLabels, chartData);
+        // Atraso de 1ms (macete) para garantir que o <canvas> existe no DOM
+        setTimeout(() => {
+            renderPerformanceChart(chartLabels, chartData);
+        }, 1);
     }
 }
 
@@ -1006,6 +992,12 @@ async function renderStudentDashboard_Menu(userData) {
 function renderPerformanceChart(labels, data) {
     const ctx = document.getElementById('performanceChart');
     if (!ctx) return; 
+
+    // Destrói gráfico antigo, se existir (para evitar bugs de re-renderização)
+    let chartStatus = Chart.getChart("performanceChart"); 
+    if (chartStatus != undefined) {
+        chartStatus.destroy();
+    }
 
     new Chart(ctx, {
         type: 'bar', // Tipo de gráfico
