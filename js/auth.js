@@ -1,13 +1,14 @@
 /*
  * ========================================================
- * ARQUIVO: js/auth.js (VERSÃO 2.1 - Correção de Conflito)
+ * ARQUIVO: js/auth.js (VERSÃO 2.2 - Corrigido com Config)
  * ========================================================
  */
 
-// --- [ PARTE 1: IMPORTAR MÓDULOS DO FIREBASE ] ---
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+// --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
+// (NOVO) Importa as chaves do novo ficheiro de config
+import { auth, db } from './firebase-config.js'; 
+
 import {
-    getAuth,
     onAuthStateChanged,
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
@@ -15,34 +16,23 @@ import {
     sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-    getFirestore,
     doc,
     getDoc,
     setDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { 
-    getStorage 
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
-// (NOVO) Importar a função de desenhar o dashboard
+
+// Importa a função de desenhar o dashboard
 import { loadDashboard } from './main.js'; 
 
 
 // --- [ PARTE 2: CONFIGURAÇÃO DO FIREBASE ] ---
-const firebaseConfig = {
-    apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
-    authDomain: "meu-planner-oab.firebaseapp.com",
-    projectId: "meu-planner-oab",
-    storageBucket: "meu-planner-oab.firebasestorage.app",
-    messagingSenderId: "4187860413",
-    appId: "1:4187860413:web:b61239f784aaf5ed06f6d4"
-};
+// (REMOVIDO - Agora está no firebase-config.js)
 
 // --- [ PARTE 3: INICIAR O FIREBASE E EXPORTAR SERVIÇOS ] ---
-const app = initializeApp(firebaseConfig);
-
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app); 
+// (REMOVIDO - Agora está no firebase-config.js)
+// (NOVO) Apenas re-exportamos o 'db' para o main.js não falhar
+// (na verdade, vamos corrigir o main.js para importar direto)
+// export { db, auth }; // Não é mais necessário
 
 // --- [ PARTE 4: SELETORES DO DOM (OS NOSSOS ECRÃS) ] ---
 const loadingScreen = document.getElementById('loading-screen');
@@ -77,7 +67,7 @@ onAuthStateChanged(auth, async (user) => {
             if (userDoc.exists()) {
                 userEmailElement.textContent = user.email;
                 showScreen('app'); // 1. Mostra o ecrã da app
-                loadDashboard(user); // 2. (NOVO) Chama o main.js para desenhar o conteúdo
+                loadDashboard(user); // 2. Chama o main.js para desenhar o conteúdo
             } else {
                 authScreen.innerHTML = renderProfileForm(user);
                 showScreen('auth');
@@ -174,6 +164,7 @@ authScreen.addEventListener('submit', async (e) => {
 
 
 // --- [ PARTE 8: FUNÇÕES DE RENDERIZAÇÃO (HTML DOS FORMULÁRIOS) ] ---
+// (O código desta parte não muda, cole o seu aqui)
 function renderLoginForm(errorMsg = "") {
     return `
         <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
