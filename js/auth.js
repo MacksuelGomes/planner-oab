@@ -1,13 +1,12 @@
 /*
  * ========================================================
- * ARQUIVO: js/auth.js (VERSÃO 2.0 - ESTÁVEL)
+ * ARQUIVO: js/auth.js (VERSÃO 2.2 - Corrigido com Config)
  * ========================================================
  */
 
-// --- [ PARTE 1: IMPORTAR MÓDULOS DO FIREBASE ] ---
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+// --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
+import { auth, db } from './firebase-config.js'; 
 import {
-    getAuth,
     onAuthStateChanged,
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
@@ -15,38 +14,17 @@ import {
     sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-    getFirestore,
     doc,
     getDoc,
     setDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { 
-    getStorage 
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+import { loadDashboard } from './main.js'; 
 
-
-// --- [ PARTE 2: CONFIGURAÇÃO DO FIREBASE ] ---
-const firebaseConfig = {
-    apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
-    authDomain: "meu-planner-oab.firebaseapp.com",
-    projectId: "meu-planner-oab",
-    storageBucket: "meu-planner-oab.firebasestorage.app",
-    messagingSenderId: "4187860413",
-    appId: "1:4187860413:web:b61239f784aaf5ed06f6d4"
-};
-
-// --- [ PARTE 3: INICIAR O FIREBASE E EXPORTAR SERVIÇOS ] ---
-const app = initializeApp(firebaseConfig);
-
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app); 
 
 // --- [ PARTE 4: SELETORES DO DOM (OS NOSSOS ECRÃS) ] ---
 const loadingScreen = document.getElementById('loading-screen');
 const authScreen = document.getElementById('auth-screen');
 const appScreen = document.getElementById('app-screen');
-
 const logoutButton = document.getElementById('logout-button');
 const userEmailElement = document.getElementById('user-email');
 
@@ -74,7 +52,8 @@ onAuthStateChanged(auth, async (user) => {
 
             if (userDoc.exists()) {
                 userEmailElement.textContent = user.email;
-                showScreen('app');
+                showScreen('app'); // 1. Mostra o ecrã da app
+                loadDashboard(user); // 2. Chama o main.js para desenhar o conteúdo
             } else {
                 authScreen.innerHTML = renderProfileForm(user);
                 showScreen('auth');
@@ -98,7 +77,6 @@ logoutButton.addEventListener('click', async () => {
         console.error("Erro ao fazer logout:", error);
     }
 });
-
 authScreen.addEventListener('click', (e) => {
     if (e.target.dataset.action === 'show-register') {
         authScreen.innerHTML = renderRegisterForm();
@@ -110,7 +88,6 @@ authScreen.addEventListener('click', (e) => {
         authScreen.innerHTML = renderResetPasswordForm();
     }
 });
-
 authScreen.addEventListener('submit', async (e) => {
     e.preventDefault(); 
     const messageEl = e.target.querySelector('#auth-message');
@@ -147,7 +124,6 @@ authScreen.addEventListener('submit', async (e) => {
                 email: user.email,
                 criadoEm: new Date()
             });
-            // O onAuthStateChanged tratará de mostrar o app
         } catch (error) {
             messageEl.textContent = "Erro ao guardar o perfil.";
         }
@@ -162,7 +138,6 @@ authScreen.addEventListener('submit', async (e) => {
         }
     }
 });
-
 
 // --- [ PARTE 8: FUNÇÕES DE RENDERIZAÇÃO (HTML DOS FORMULÁRIOS) ] ---
 function renderLoginForm(errorMsg = "") {
