@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.32 - Correção de Conflito)
+ * ARQUIVO: js/main.js (VERSÃO 5.32 - Corrigido com Config)
  * ========================================================
  */
 
