@@ -1,13 +1,17 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.32 - Corrigido com Config)
+ * ARQUIVO: js/main.js (VERSÃO 5.33 - CORREÇÃO CRÍTICA DO GRÁFICO)
+ *
+ * NOVIDADES:
+ * - Corrigido o bug que impedia o dashboard do aluno de
+ * carregar.
+ * - 'loadDashboard' agora passa corretamente os dados
+ * para 'renderPerformanceChart'.
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-// (MODIFICADO) Importa do novo ficheiro de config
 import { auth, db } from './firebase-config.js'; 
-
 import { 
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
     setDoc, increment 
@@ -46,11 +50,10 @@ let quizTempoRestante = null;
 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
-// (REMOVIDO - O auth.js agora controla tudo)
+// (Removido - O auth.js agora controla tudo)
 
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
-// (MODIFICADO) 'export' permite que o auth.js chame esta função
 export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null; 
@@ -89,9 +92,20 @@ export async function loadDashboard(user) {
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
-                appContent.innerHTML = await renderStudentDashboard_Menu(userData);
-                // Chama o renderChart DEPOIS que o HTML do menu for desenhado
-                await renderPerformanceChart();
+                // (CORRIGIDO)
+                // 1. Pega no HTML E nos dados do gráfico
+                const { dashboardHtml, chartLabels, chartData } = await renderStudentDashboard_Menu(userData);
+                
+                // 2. Desenha o HTML
+                appContent.innerHTML = dashboardHtml;
+                
+                // 3. Desenha o gráfico, SE houver dados
+                if (chartLabels.length > 0) {
+                    // Espera 1ms para garantir que o <canvas> existe no DOM
+                    setTimeout(() => {
+                        renderPerformanceChart(chartLabels, chartData);
+                    }, 1);
+                }
             }
         } else {
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
@@ -107,7 +121,6 @@ appContent.addEventListener('click', async (e) => {
     
     const actionButton = e.target.closest('[data-action]');
 
-    // LÓGICA DE CLIQUE NA ALTERNATIVA
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         if (!actionButton) { 
@@ -436,10 +449,8 @@ async function handleStartStudySession(materia) {
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = `Estudo: ${materia.replace('_', ' ')}`;
-        
         quizReport = { acertos: 0, erros: 0, total: 0 };
         quizTempoRestante = null; 
-
         renderQuiz(); 
     } catch (error) {
         console.error("Erro ao carregar questões do Firestore:", error);
@@ -451,7 +462,6 @@ async function handleStartStudySession(materia) {
 async function finalizarQuiz() {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null;
-
     let textoFinal = `Você completou ${quizReport.total} questões.`;
     let textoBotao = "Voltar";
     
@@ -484,15 +494,11 @@ async function finalizarQuiz() {
          textoFinal = `Você completou ${quizReport.total} questões.`;
          textoBotao = "Voltar ao Estudo Livre";
     }
-
     appContent.innerHTML = renderQuizReport(quizReport, textoFinal, textoBotao);
 }
-
 async function handleProximaQuestao() {
     quizIndexAtual++; 
-    
     const quizTerminou = quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia);
-
     if (quizTerminou) {
         finalizarQuiz(); 
     } else {
@@ -501,7 +507,6 @@ async function handleProximaQuestao() {
         renderQuiz(); 
     }
 }
-
 async function handleConfirmarResposta() { 
     if (alternativaSelecionada === null) {
         alert('Por favor, selecione uma alternativa.');
@@ -509,28 +514,22 @@ async function handleConfirmarResposta() {
     }
     if (respostaConfirmada) return; 
     respostaConfirmada = true;
-    
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const correta = questaoAtual.correta;
     const acertou = alternativaSelecionada === correta;
-    
     quizReport.total++;
     if (acertou) {
         quizReport.acertos++;
     } else {
         quizReport.erros++;
     }
-    
     try {
         await salvarProgresso(questaoAtual.materia, acertou);
-
         const user = auth.currentUser;
         const questaoId = questaoAtual.docId || questaoAtual.id; 
-        
         if (questaoId) {
             const erroRef = doc(db, 'users', user.uid, 'questoes_erradas', questaoId);
             const acertoRef = doc(db, 'users', user.uid, 'questoes_acertadas', questaoId);
-
             if (!acertou) {
                 await setDoc(erroRef, questaoAtual);
                 await deleteDoc(acertoRef); 
@@ -542,7 +541,6 @@ async function handleConfirmarResposta() {
     } catch (error) {
         console.error("Erro ao salvar progresso/erro/acerto:", error);
     }
-
     const alternativasEls = document.querySelectorAll('[data-alternativa]');
     alternativasEls.forEach(el => {
         const alt = el.dataset.alternativa;
@@ -575,41 +573,32 @@ async function salvarProgresso(materia, acertou) {
         totalAcertos: acertou ? increment(1) : increment(0)
     }, { merge: true });
 }
-
 async function handleStartSimulado(num, rom) { 
     appContent.innerHTML = renderLoadingState(); 
-    
     const variacoes = [ `OAB-${num}`, num, `OAB-${rom}`, rom ];
-
     try {
         const questoesRef = collection(db, 'questoes');
         const q = query(questoesRef, where("edicao", "in", variacoes));
-        
         const querySnapshot = await getDocs(q);
         const questoesArray = [];
         querySnapshot.forEach((doc) => {
             questoesArray.push({ ...doc.data(), docId: doc.id });
         });
-        
         if (questoesArray.length === 0) {
             let returnButtonHtml = getVoltarButtonHtml(); 
             appContent.innerHTML = `<p class="text-gray-400">Nenhuma questão encontrada para o Exame ${rom}.</p>${returnButtonHtml}`;
             return;
         }
-        
         metaQuestoesDoDia = questoesArray.length; 
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = `Simulado Exame ${rom}`; 
-        
         quizReport = { acertos: 0, erros: 0, total: 0 };
         quizTempoRestante = 5 * 60 * 60; 
-
         renderQuiz(); 
         startCronometro(); 
-
     } catch (error) {
         console.error("Erro ao carregar simulado:", error);
         let returnButtonHtml = getVoltarButtonHtml(); 
@@ -647,17 +636,14 @@ async function handleStartSimuladoAssertivo() {
             if (simuladoQuestoes.length >= 80) break; 
         }
         const finalExam = simuladoQuestoes.slice(0, 80); 
-        
         metaQuestoesDoDia = finalExam.length; 
         quizQuestoes = finalExam; 
         quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = 'Simulado Assertivo';
-        
         quizReport = { acertos: 0, erros: 0, total: 0 };
         quizTempoRestante = 5 * 60 * 60; 
-
         renderQuiz(); 
         startCronometro();
     } catch (error) {
@@ -666,29 +652,24 @@ async function handleStartSimuladoAssertivo() {
         appContent.innerHTML = `<p class="text-red-400">Erro ao gerar simulado: ${error.message}</p>${returnButtonHtml}`;
     }
 }
-
 async function handleStartCadernoErros() {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const user = auth.currentUser;
         const questoesRef = collection(db, 'users', user.uid, 'questoes_erradas');
         const querySnapshot = await getDocs(questoesRef);
-        
         const questoesArray = [];
         querySnapshot.forEach((doc) => {
             questoesArray.push({ ...doc.data(), docId: doc.id });
         });
-        
         metaQuestoesDoDia = questoesArray.length;
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = `Caderno de Erros`;
-
         quizReport = { acertos: 0, erros: 0, total: 0 };
         quizTempoRestante = null;
-
         renderQuiz(); 
     } catch (error) {
         console.error("Erro ao carregar caderno de erros:", error);
@@ -696,29 +677,24 @@ async function handleStartCadernoErros() {
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar os seus erros: ${error.message}</p>${returnButtonHtml}`;
     }
 }
-
 async function handleStartCadernoAcertos() {
     appContent.innerHTML = renderLoadingState(); 
     try {
         const user = auth.currentUser;
         const questoesRef = collection(db, 'users', user.uid, 'questoes_acertadas');
         const querySnapshot = await getDocs(questoesRef);
-        
         const questoesArray = [];
         querySnapshot.forEach((doc) => {
             questoesArray.push({ ...doc.data(), docId: doc.id });
         });
-        
         metaQuestoesDoDia = questoesArray.length;
         quizQuestoes = questoesArray; 
         quizIndexAtual = 0;        
         alternativaSelecionada = null;
         respostaConfirmada = false;
         quizTitle = `Caderno de Acertos`;
-
         quizReport = { acertos: 0, erros: 0, total: 0 };
         quizTempoRestante = null;
-
         renderQuiz(); 
     } catch (error) {
         console.error("Erro ao carregar caderno de acertos:", error);
@@ -726,8 +702,6 @@ async function handleStartCadernoAcertos() {
         appContent.innerHTML = `<p class="text-red-400">Erro ao carregar os seus acertos: ${error.message}</p>${returnButtonHtml}`;
     }
 }
-
-
 async function handleSalvarAnotacao(materia, conteudo) {
     if (!materia) return;
     try {
@@ -744,7 +718,6 @@ async function handleSalvarAnotacao(materia, conteudo) {
         if(statusEl) statusEl.textContent = "Erro ao guardar.";
     }
 }
-
 async function renderAnotacoesEditor(materia) {
     appContent.innerHTML = renderLoadingState();
     let conteudoAtual = "";
@@ -758,7 +731,6 @@ async function renderAnotacoesEditor(materia) {
     } catch (error) {
         console.error("Erro ao carregar anotação:", error);
     }
-
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     appContent.innerHTML = `
         <button data-action="show-anotacoes-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar às Matérias</button>
@@ -779,26 +751,20 @@ async function renderAnotacoesEditor(materia) {
         </div>
     `;
 }
-
 function startCronometro() {
     if (cronometroInterval) clearInterval(cronometroInterval); 
-
     cronometroInterval = setInterval(() => {
         const cronometroEl = document.getElementById('quiz-cronometro');
         if (!cronometroEl) {
             clearInterval(cronometroInterval);
             return;
         }
-
         quizTempoRestante--; 
-        
         const horas = Math.floor(quizTempoRestante / 3600);
         const minutos = Math.floor((quizTempoRestante % 3600) / 60);
         const segundos = quizTempoRestante % 60;
-        
         cronometroEl.textContent = 
             `${horas.toString().padStart(2, '0')}:${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`;
-
         if (quizTempoRestante <= 0) {
             clearInterval(cronometroInterval);
             alert("Tempo esgotado! O seu simulado será finalizado.");
@@ -807,9 +773,7 @@ function startCronometro() {
     }, 1000);
 }
 
-
 // --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) ] ---
-
 function getVoltarButtonHtml() {
     if (quizReturnPath === 'free-study') {
         return `<button data-action="show-free-study" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Estudo Livre</button>`;
@@ -834,19 +798,15 @@ function renderAdminDashboard(userData) {
         </div>
     `;
 }
-
 async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const menuItemStyle = "bg-gray-800 rounded-lg shadow-xl border border-gray-700 transition duration-300 ease-in-out transform hover:border-blue-400 hover:scale-[1.02] cursor-pointer";
-
-    // --- (LÓGICA DE STATS) ---
     const progressoRef = collection(db, 'users', auth.currentUser.uid, 'progresso');
     const progressoSnapshot = await getDocs(progressoRef);
     let totalResolvidasGlobal = 0;
     let totalAcertosGlobal = 0;
     let chartLabels = [];
     let chartData = []; 
-
     progressoSnapshot.forEach((doc) => {
         const materia = doc.id;
         const data = doc.data();
@@ -855,42 +815,33 @@ async function renderStudentDashboard_Menu(userData) {
         totalResolvidasGlobal += resolvidas;
         totalAcertosGlobal += acertos;
         const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
-        
         if (resolvidas > 0) {
             chartLabels.push(materia.replace(/_/g, ' '));
             chartData.push(taxa);
         }
     });
-
     const taxaAcertoGlobal = (totalResolvidasGlobal > 0) 
         ? ((totalAcertosGlobal / totalResolvidasGlobal) * 100).toFixed(0) 
         : 0;
     const totalDias = userData.totalDiasEstudo || 0;
     const sequencia = userData.sequenciaDias || 0;
-    // --- (FIM DA LÓGICA DE STATS) ---
-
     let desempenhoHtml = '';
     if (chartLabels.length > 0) {
         desempenhoHtml = `<canvas id="performanceChart"></canvas>`;
     } else {
         desempenhoHtml = `<p class="text-gray-400">Responda a algumas questões para ver o seu progresso aqui.</p>`;
     }
-
     const dashboardHtml = `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
-        
         <div class="grid md:grid-cols-4 gap-6 mb-8">
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3><p class="text-3xl font-bold text-white mt-2">${totalResolvidasGlobal}</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Taxa de Acerto</h3><p class="text-3xl font-bold text-white mt-2">${taxaAcertoGlobal}%</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Total de Dias</h3><p class="text-3xl font-bold text-white mt-2">${totalDias}</p></div>
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Sequência 🔥</h3><p class="text-3xl font-bold text-white mt-2">${sequencia}</p></div>
         </div>
-
         <div class="grid md:grid-cols-3 gap-6">
-            
             <div class="md:col-span-2">
                 <h2 class="text-2xl font-bold text-white mb-6">O que vamos fazer hoje?</h2>
-                
                 <div class="space-y-6">
                     <div data-action="show-guided-planner" class="${menuItemStyle} p-6 flex items-center">
                         <div class="mr-6 flex-shrink-0">
@@ -901,7 +852,6 @@ async function renderStudentDashboard_Menu(userData) {
                             <p class="text-gray-300">Siga um ciclo de estudos automático com metas diárias.</p>
                         </div>
                     </div>
-
                     <div data-action="show-caderno-acertos" class="${menuItemStyle} p-6 flex items-center border-green-500 hover:border-green-400">
                         <div class="mr-6 flex-shrink-0">
                             <svg class="w-12 h-12 text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -913,7 +863,6 @@ async function renderStudentDashboard_Menu(userData) {
                             <p class="text-gray-300">Revise as questões que você acertou para reforçar o conhecimento.</p>
                         </div>
                     </div>
-
                     <div data-action="show-caderno-erros" class="${menuItemStyle} p-6 flex items-center border-red-500 hover:border-red-400">
                         <div class="mr-6 flex-shrink-0">
                             <svg class="w-12 h-12 text-red-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -925,7 +874,6 @@ async function renderStudentDashboard_Menu(userData) {
                             <p class="text-gray-300">Revise apenas as questões que você já errou.</p>
                         </div>
                     </div>
-
                     <div data-action="show-anotacoes-menu" class="${menuItemStyle} p-6 flex items-center border-yellow-500 hover:border-yellow-400">
                         <div class="mr-6 flex-shrink-0">
                             <svg class="w-12 h-12 text-yellow-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -937,7 +885,6 @@ async function renderStudentDashboard_Menu(userData) {
                             <p class="text-gray-300">Crie e reveja as suas anotações pessoais por matéria.</p>
                         </div>
                     </div>
-
                     <div class="grid md:grid-cols-2 gap-6">
                         <div data-action="show-free-study" class="${menuItemStyle} p-6 flex items-center">
                             <div class="mr-5 flex-shrink-0">
@@ -950,7 +897,6 @@ async function renderStudentDashboard_Menu(userData) {
                                 <p class="text-gray-400 text-sm">Escolha qualquer matéria.</p>
                             </div>
                         </div>
-
                         <div data-action="show-simulados-menu" class="${menuItemStyle} p-6 flex items-center">
                             <div class="mr-5 flex-shrink-0">
                                 <svg class="w-10 h-10 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -963,16 +909,13 @@ async function renderStudentDashboard_Menu(userData) {
                             </div>
                         </div>
                     </div>
-
                 </div>
             </div>
-
             <div class="${cardStyle} md:col-span-1">
                 <h3 class="text-2xl font-bold text-white mb-6">Seu Desempenho</h3>
                 <div class="space-y-4">
                     ${desempenhoHtml}
                 </div>
-                
                 <div class="mt-6 border-t border-gray-700 pt-4">
                     <button data-action="resetar-desempenho" 
                             class="w-full text-sm text-center text-red-400 hover:text-red-300 transition">
@@ -983,15 +926,11 @@ async function renderStudentDashboard_Menu(userData) {
         </div>
     `;
     
-    appContent.innerHTML = dashboardHtml;
-    if (chartLabels.length > 0) {
-        setTimeout(() => {
-            renderPerformanceChart(chartLabels, chartData);
-        }, 1);
-    }
+    // (CORRIGIDO) Retorna o HTML e os DADOS para o loadDashboard
+    return { dashboardHtml, chartLabels, chartData };
 }
 
-function renderPerformanceChart(labels, data) {
+async function renderPerformanceChart(labels, data) {
     const ctx = document.getElementById('performanceChart');
     if (!ctx) return; 
 
@@ -1196,12 +1135,10 @@ async function renderListQuestionsUI() {
         appContent.innerHTML = `<p>Erro ao listar: ${error.message}</p>`;
     }
 }
-
 function renderSimuladosMenu() {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const cardHover = "hover:bg-gray-700 hover:border-blue-400 transition duration-300 cursor-pointer";
     const selectStyle = "w-full p-3 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-blue-500 focus:ring-blue-500";
-
     const edicoes = [
         { display: "XXXVIII", num: "38", rom: "XXXVIII" }, { display: "XXXVII", num: "37", rom: "XXXVII" },
         { display: "XXXVI", num: "36", rom: "XXXVI" }, { display: "XXXV", num: "35", rom: "XXXV" },
@@ -1221,14 +1158,12 @@ function renderSimuladosMenu() {
         { display: "VIII", num: "8", rom: "VIII" }, { display: "VII", num: "7", rom: "VII" },
         { display: "VI", num: "6", rom: "VI" }, { display: "V", num: "5", rom: "V" }
     ];
-    
     return `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle}">
             <h2 class="text-2xl font-bold text-white mb-6">Simulados</h2>
             <p class="text-gray-300 mb-6">Escolha um tipo de simulado para iniciar:</p>
             <div class="grid md:grid-cols-2 gap-6">
-                
                 <div class="${cardStyle}">
                     <h3 class="text-xl font-bold text-blue-400 mb-4">Por Edição Anterior</h3>
                     <p class="text-gray-400 mb-4">Selecione uma prova para começar:</p>
@@ -1245,7 +1180,6 @@ function renderSimuladosMenu() {
                         </button>
                     </div>
                 </div>
-
                 <div data-action="start-simulado-assertivo" class="${cardStyle} ${cardHover}">
                     <h3 class="text-xl font-bold text-blue-400 mb-4">Simulado Assertivo</h3>
                     <p class="text-gray-400">Um simulado de 80 questões focado apenas nos temas mais cobrados.</p>
@@ -1254,7 +1188,6 @@ function renderSimuladosMenu() {
         </div>
     `;
 }
-
 async function renderCadernoErrosMenu() {
     appContent.innerHTML = renderLoadingState();
     let numErros = 0;
@@ -1264,15 +1197,12 @@ async function renderCadernoErrosMenu() {
         const querySnapshot = await getDocs(questoesRef);
         numErros = querySnapshot.size;
     } catch (e) { console.error("Erro ao contar erros:", e); }
-
     const cardStyle = "bg-gray-800 p-8 rounded-lg shadow-xl border border-gray-700 max-w-lg mx-auto text-center";
-
     let html = `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle}">
             <h2 class="text-3xl font-bold text-red-400 mb-4">Caderno de Erros</h2>
     `;
-
     if (numErros === 0) {
         html += `<p class="text-gray-300 text-lg">Parabéns! O seu caderno de erros está vazio.</p>`;
     } else {
@@ -1288,11 +1218,9 @@ async function renderCadernoErrosMenu() {
             </button>
         `;
     }
-
     html += `</div>`;
     appContent.innerHTML = html;
 }
-
 async function renderCadernoAcertosMenu() {
     appContent.innerHTML = renderLoadingState();
     let numAcertos = 0;
@@ -1302,15 +1230,12 @@ async function renderCadernoAcertosMenu() {
         const querySnapshot = await getDocs(questoesRef);
         numAcertos = querySnapshot.size;
     } catch (e) { console.error("Erro ao contar acertos:", e); }
-
     const cardStyle = "bg-gray-800 p-8 rounded-lg shadow-xl border border-gray-700 max-w-lg mx-auto text-center";
-
     let html = `
         <button data-action="student-voltar-menu" class="mb-4 text-blue-400 hover:text-blue-300">&larr; Voltar ao Menu</button>
         <div class="${cardStyle}">
             <h2 class="text-3xl font-bold text-green-400 mb-4">Caderno de Acertos</h2>
     `;
-
     if (numAcertos === 0) {
         html += `<p class="text-gray-300 text-lg">O seu caderno de acertos está vazio. Comece a estudar!</p>`;
     } else {
@@ -1326,18 +1251,14 @@ async function renderCadernoAcertosMenu() {
             </button>
         `;
     }
-
     html += `</div>`;
     appContent.innerHTML = html;
 }
-
-
 function renderQuiz() {
     const questaoAtual = quizQuestoes[quizIndexAtual];
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const alternativaStyle = "p-4 bg-gray-700 rounded-lg text-white hover:bg-gray-600 cursor-pointer transition border border-transparent";
     const metaDoQuiz = (quizReturnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
-    
     let cronometroHtml = '';
     if (quizTempoRestante !== null) {
         const horas = Math.floor(quizTempoRestante / 3600);
@@ -1345,14 +1266,12 @@ function renderQuiz() {
         const segundos = quizTempoRestante % 60;
         const tempoFormatado = 
             `${horas.toString().padStart(2, '0')}:${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`;
-        
         cronometroHtml = `
             <div class="fixed top-20 right-4 bg-gray-900 text-white p-3 rounded-lg shadow-lg border border-blue-500 z-50">
                 <span class="text-2xl font-mono" id="quiz-cronometro">${tempoFormatado}</span>
             </div>
         `;
     }
-    
     appContent.innerHTML = `
         ${cronometroHtml}
         <h2 class="text-2xl font-bold text-white mb-2 capitalize">${quizTitle}</h2>
@@ -1373,16 +1292,13 @@ function renderQuiz() {
         </div>
     `;
 }
-
 function renderQuizReport(report, textoFinal, textoBotao) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const taxaAcerto = (report.total > 0) ? ((report.acertos / report.total) * 100).toFixed(0) : 0;
-    
     return `
         <div class="text-center max-w-lg mx-auto">
             <h1 class="text-3xl font-bold text-white mb-4">Sessão Concluída!</h1>
             <p class="text-gray-300 mb-8 text-lg">${textoFinal}</p>
-            
             <div class="${cardStyle} mb-8">
                 <h3 class="text-xl font-bold text-white mb-6">Seu Resumo da Sessão</h3>
                 <div class="grid grid-cols-3 gap-4 text-white">
@@ -1401,7 +1317,6 @@ function renderQuizReport(report, textoFinal, textoBotao) {
                 </div>
                 <p class="text-gray-400 text-sm mt-4">Total de ${report.total} questões respondidas.</p>
             </div>
-
             <button data-action="sair-quiz" class="bg-blue-600 text-white font-semibold py-3 px-8 rounded hover:bg-blue-700 transition text-lg">
                 ${textoBotao}
             </button>
