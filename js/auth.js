@@ -30,9 +30,6 @@ import { loadDashboard } from './main.js';
 
 // --- [ PARTE 3: INICIAR O FIREBASE E EXPORTAR SERVIÇOS ] ---
 // (REMOVIDO - Agora está no firebase-config.js)
-// (NOVO) Apenas re-exportamos o 'db' para o main.js não falhar
-// (na verdade, vamos corrigir o main.js para importar direto)
-// export { db, auth }; // Não é mais necessário
 
 // --- [ PARTE 4: SELETORES DO DOM (OS NOSSOS ECRÃS) ] ---
 const loadingScreen = document.getElementById('loading-screen');
@@ -67,7 +64,7 @@ onAuthStateChanged(auth, async (user) => {
             if (userDoc.exists()) {
                 userEmailElement.textContent = user.email;
                 showScreen('app'); // 1. Mostra o ecrã da app
-                loadDashboard(user); // 2. Chama o main.js para desenhar o conteúdo
+                loadDashboard(user); // 2. (NOVO) Chama o main.js para desenhar o conteúdo
             } else {
                 authScreen.innerHTML = renderProfileForm(user);
                 showScreen('auth');
@@ -164,7 +161,6 @@ authScreen.addEventListener('submit', async (e) => {
 
 
 // --- [ PARTE 8: FUNÇÕES DE RENDERIZAÇÃO (HTML DOS FORMULÁRIOS) ] ---
-// (O código desta parte não muda, cole o seu aqui)
 function renderLoginForm(errorMsg = "") {
     return `
         <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
