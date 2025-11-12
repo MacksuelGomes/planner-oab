@@ -5,7 +5,6 @@
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-// (NOVO) Importa as chaves do novo ficheiro de config
 import { auth, db } from './firebase-config.js'; 
 
 import {
@@ -24,12 +23,6 @@ import {
 // Importa a função de desenhar o dashboard
 import { loadDashboard } from './main.js'; 
 
-
-// --- [ PARTE 2: CONFIGURAÇÃO DO FIREBASE ] ---
-// (REMOVIDO - Agora está no firebase-config.js)
-
-// --- [ PARTE 3: INICIAR O FIREBASE E EXPORTAR SERVIÇOS ] ---
-// (REMOVIDO - Agora está no firebase-config.js)
 
 // --- [ PARTE 4: SELETORES DO DOM (OS NOSSOS ECRÃS) ] ---
 const loadingScreen = document.getElementById('loading-screen');
