@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.31 - Corrigido com Config)
+ * ARQUIVO: js/main.js (VERSÃO 5.32 - Correção de Conflito)
  * ========================================================
  */
 
@@ -46,7 +46,7 @@ let quizTempoRestante = null;
 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
-// (Removido - O auth.js agora controla tudo)
+// (REMOVIDO - O auth.js agora controla tudo)
 
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
@@ -101,11 +101,6 @@ export async function loadDashboard(user) {
         appContent.innerHTML = `<p>Ocorreu um erro ao carregar seus dados.</p>`;
     }
 }
-
-// --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
-// (Todo o resto do ficheiro é IDÊNTICO à versão 5.29)
-// (Não cole esta linha, apenas cole o resto do seu ficheiro 5.29)
-// ... (Cole aqui o resto do seu main.js, da Parte 7 até ao fim) ...
 
 // --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
 appContent.addEventListener('click', async (e) => {
@@ -988,65 +983,61 @@ async function renderStudentDashboard_Menu(userData) {
         </div>
     `;
     
-    // (NOVO) Renderiza o HTML e DEPOIS chama a função do gráfico
     appContent.innerHTML = dashboardHtml;
     if (chartLabels.length > 0) {
-        // Atraso de 1ms (macete) para garantir que o <canvas> existe no DOM
         setTimeout(() => {
             renderPerformanceChart(chartLabels, chartData);
         }, 1);
     }
 }
 
-// (NOVA FUNÇÃO) Desenha o Gráfico de Desempenho
 function renderPerformanceChart(labels, data) {
     const ctx = document.getElementById('performanceChart');
     if (!ctx) return; 
 
-    // Destrói gráfico antigo, se existir (para evitar bugs de re-renderização)
     let chartStatus = Chart.getChart("performanceChart"); 
     if (chartStatus != undefined) {
         chartStatus.destroy();
     }
 
     new Chart(ctx, {
-        type: 'bar', // Tipo de gráfico
+        type: 'bar', 
         data: {
-            labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)), // Capitaliza os nomes
+            labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)), 
             datasets: [{
                 label: 'Taxa de Acerto (%)',
                 data: data,
-                backgroundColor: 'rgba(59, 130, 246, 0.7)', // Azul com transparência
+                backgroundColor: 'rgba(59, 130, 246, 0.7)', 
                 borderColor: 'rgba(59, 130, 246, 1)',
                 borderWidth: 1
             }]
         },
         options: {
-            indexAxis: 'y', // <-- Isto o torna horizontal
+            indexAxis: 'y', 
             responsive: true,
             scales: {
                 x: {
                     beginAtZero: true,
-                    max: 100, // Taxa vai de 0 a 100
+                    max: 100, 
                     ticks: {
-                        color: '#9ca3af' // Cor dos números (cinza)
+                        color: '#9ca3af' 
                     },
                     grid: {
-                        color: 'rgba(255, 255, 255, 0.1)' // Linhas do grid
+                        color: 'rgba(255, 255, 255, 0.1)' 
                     }
                 },
                 y: {
                     ticks: {
-                        color: '#e5e7eb' // Cor das matérias (branco)
+                        color: '#e5e7eb' 
                     },
                     grid: {
-                        display: false // Esconde o grid vertical
+                        display: false 
                     }
                 }
             },
             plugins: {
                 legend: {
-                    display: false // Esconde a legenda "Taxa de Acerto (%)"
+                    display: false 
                 },
                 tooltip: {
                     callbacks: {
