@@ -4,6 +4,7 @@
  * ========================================================
  */
 
+
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
 import { auth, db } from './firebase-config.js'; 
 import {
