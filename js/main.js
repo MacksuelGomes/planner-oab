@@ -1,12 +1,7 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.34 - CORREÇÃO CRÍTICA DO 'currentUser')
- *
- * NOVIDADES:
- * - Corrigido o bug 'auth.currentUser.uid is null'
- * que impedia o dashboard do aluno de carregar.
- * - A função 'loadDashboard' agora passa o 'user' para
- * 'renderStudentDashboard_Menu'
+ * ARQUIVO: js/main.js (VERSÃO 5.34 - CORREÇÃO CRÍTICA DO GRÁFICO)
+ * (Esta é a versão 5.33, mas com a correção do bug de login)
  * ========================================================
  */
 
@@ -812,17 +807,18 @@ function renderAdminDashboard(userData) {
         </div>
     `;
 }
-async function renderStudentDashboard_Menu(userData, user) { // (CORRIGIDO) Recebe o 'user'
+
+// (VOLTOU À VERSÃO 5.30 - COM CALENDÁRIO, MAS SEM GRÁFICO)
+async function renderStudentDashboard_Menu(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
     const menuItemStyle = "bg-gray-800 rounded-lg shadow-xl border border-gray-700 transition duration-300 ease-in-out transform hover:border-blue-400 hover:scale-[1.02] cursor-pointer";
-    
-    // (CORRIGIDO) Usa user.uid em vez de auth.currentUser.uid
-    const progressoRef = collection(db, 'users', user.uid, 'progresso');
+
+    // --- (LÓGICA DE STATS) ---
+    const progressoRef = collection(db, 'users', auth.currentUser.uid, 'progresso');
     const progressoSnapshot = await getDocs(progressoRef);
     let totalResolvidasGlobal = 0;
     let totalAcertosGlobal = 0;
-    let chartLabels = [];
-    let chartData = []; 
+    let materiaStatsHtml = ''; // (CORRIGIDO) Volta a ser HTML
 
     progressoSnapshot.forEach((doc) => {
         const materia = doc.id;
@@ -832,10 +828,18 @@ async function renderStudentDashboard_Menu(userData, user) { // (CORRIGIDO) Rece
         totalResolvidasGlobal += resolvidas;
         totalAcertosGlobal += acertos;
         const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
-        if (resolvidas > 0) {
-            chartLabels.push(materia.replace(/_/g, ' '));
-            chartData.push(taxa);
-        }
+
+        materiaStatsHtml += `
+            <div class="mb-3">
+                <div class="flex justify-between mb-1">
+                    <span class="text-sm font-medium text-blue-300 capitalize">${materia.replace('_', ' ')}</span>
+                    <span class="text-sm font-medium text-gray-300">${taxa}% (${acertos}/${resolvidas})</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2.5">
+                    <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${taxa}%"></div>
+                </div>
+            </div>
+        `;
     });
 
     const taxaAcertoGlobal = (totalResolvidasGlobal > 0) 
@@ -843,26 +847,20 @@ async function renderStudentDashboard_Menu(userData, user) { // (CORRIGIDO) Rece
         : 0;
     const totalDias = userData.totalDiasEstudo || 0;
     const sequencia = userData.sequenciaDias || 0;
-
-    let desempenhoHtml = '';
-    if (chartLabels.length > 0) {
-        desempenhoHtml = `<canvas id="performanceChart"></canvas>`;
-    } else {
-        desempenhoHtml = `<p class="text-gray-400">Responda a algumas questões para ver o seu progresso aqui.</p>`;
-    }
-
-    // (NOVO) Busca os dados do calendário
+    
+    // (LÓGICA DO CALENDÁRIO)
     const today = new Date();
     const monthId = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}`;
-    const studyLogRef = doc(db, 'users', user.uid, 'dias_estudo', monthId);
+    const studyLogRef = doc(db, 'users', auth.currentUser.uid, 'dias_estudo', monthId);
     const studyLogDoc = await getDoc(studyLogRef);
     let diasEstudados = [];
     if (studyLogDoc.exists()) {
         diasEstudados = studyLogDoc.data().dias || [];
     }
     const calendarioHtml = renderCalendarioHTML(today.getFullYear(), today.getMonth(), diasEstudados);
+    // --- (FIM DA LÓGICA DE STATS) ---
 
-    const dashboardHtml = `
+    return `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
         
         <div class="grid md:grid-cols-4 gap-6 mb-8">
@@ -878,8 +876,10 @@ async function renderStudentDashboard_Menu(userData, user) { // (CORRIGIDO) Rece
         </div>
 
         <div class="grid md:grid-cols-3 gap-6">
+            
             <div class="md:col-span-2">
                 <h2 class="text-2xl font-bold text-white mb-6">O que vamos fazer hoje?</h2>
+                
                 <div class="space-y-6">
                     <div data-action="show-guided-planner" class="${menuItemStyle} p-6 flex items-center">
                         <div class="mr-6 flex-shrink-0">
@@ -952,7 +952,7 @@ async function renderStudentDashboard_Menu(userData, user) { // (CORRIGIDO) Rece
             <div class="${cardStyle} md:col-span-1">
                 <h3 class="text-2xl font-bold text-white mb-6">Seu Desempenho</h3>
                 <div class="space-y-4">
-                    ${desempenhoHtml}
+                    ${materiaStatsHtml || '<p class="text-gray-400">Responda a algumas questões para ver o seu progresso aqui.</p>'}
                 </div>
                 <div class="mt-6 border-t border-gray-700 pt-4">
                     <button data-action="resetar-desempenho" 
@@ -963,71 +963,10 @@ async function renderStudentDashboard_Menu(userData, user) { // (CORRIGIDO) Rece
             </div>
         </div>
     `;
-    
-    // Retorna o HTML E os dados para o loadDashboard
-    return { dashboardHtml, chartLabels, chartData };
 }
 
-async function renderPerformanceChart(labels, data) {
-    const ctx = document.getElementById('performanceChart');
-    if (!ctx) return; 
-
-    let chartStatus = Chart.getChart("performanceChart"); 
-    if (chartStatus != undefined) {
-        chartStatus.destroy();
-    }
-
-    new Chart(ctx, {
-        type: 'bar', 
-        data: {
-            labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)), 
-            datasets: [{
-                label: 'Taxa de Acerto (%)',
-                data: data,
-                backgroundColor: 'rgba(59, 130, 246, 0.7)', 
-                borderColor: 'rgba(59, 130, 246, 1)',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            indexAxis: 'y', 
-            responsive: true,
-            scales: {
-                x: {
-                    beginAtZero: true,
-                    max: 100, 
-                    ticks: {
-                        color: '#9ca3af' 
-                    },
-                    grid: {
-                        color: 'rgba(255, 255, 255, 0.1)' 
-                    }
-                },
-                y: {
-                    ticks: {
-                        color: '#e5e7eb' 
-                    },
-                    grid: {
-                        display: false 
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: false 
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return ` Acerto: ${context.raw}%`;
-                        }
-                    }
-                }
-            }
-        }
-    });
-}
-
+// (REMOVIDA) A função do gráfico
+// function renderPerformanceChart(labels, data) { ... }
 
 function renderPlanner_TarefaDoDia(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
@@ -1360,4 +1299,50 @@ function renderQuizReport(report, textoFinal, textoBotao) {
             </button>
         </div>
     `;
+}
+// (NOVA FUNÇÃO) Desenha o Calendário de Progresso
+function renderCalendarioHTML(ano, mes, diasEstudados) {
+    const hoje = new Date();
+    const diaHoje = (hoje.getFullYear() === ano && hoje.getMonth() === mes) ? hoje.getDate() : 0;
+    
+    // Nomes dos dias da semana
+    const diasDaSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    
+    // Descobre o primeiro dia do mês (0 = Dom, 1 = Seg, ...)
+    const primeiroDiaDoMes = new Date(ano, mes, 1).getDay();
+    // Descobre o último dia do mês
+    const ultimoDiaDoMes = new Date(ano, mes + 1, 0).getDate();
+
+    let html = '<div class="grid grid-cols-7 gap-2 text-center">';
+    
+    // 1. Cabeçalho dos dias da semana
+    diasDaSemana.forEach(dia => {
+        html += `<div class="font-bold text-gray-400 text-sm">${dia}</div>`;
+    });
+
+    // 2. Células vazias (padding) antes do dia 1
+    for (let i = 0; i < primeiroDiaDoMes; i++) {
+        html += `<div></div>`;
+    }
+
+    // 3. Dias do mês
+    for (let dia = 1; dia <= ultimoDiaDoMes; dia++) {
+        let classes = "w-10 h-10 flex items-center justify-center rounded-full";
+        
+        if (diasEstudados.includes(dia)) {
+            // Dia em que o aluno estudou
+            classes += " bg-blue-500 text-white";
+        } else if (dia === diaHoje) {
+            // Dia de hoje (mas não estudou)
+            classes += " bg-gray-700 text-white";
+        } else {
+            // Outro dia
+            classes += " text-gray-500";
+        }
+        
+        html += `<div class="${classes}">${dia}</div>`;
+    }
+
+    html += '</div>';
+    return html;
 }
