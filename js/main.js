@@ -1,11 +1,13 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.30 - Correção de Conflito)
+ * ARQUIVO: js/main.js (VERSÃO 5.31 - Corrigido com Config)
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-import { auth, db } from './auth.js'; 
+// (MODIFICADO) Importa do novo ficheiro de config
+import { auth, db } from './firebase-config.js'; 
+
 import { 
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
     setDoc, increment 
@@ -44,9 +46,11 @@ let quizTempoRestante = null;
 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
-// (REMOVIDO)
+// (Removido - O auth.js agora controla tudo)
+
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
+// (MODIFICADO) 'export' permite que o auth.js chame esta função
 export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null; 
@@ -86,6 +90,7 @@ export async function loadDashboard(user) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
                 appContent.innerHTML = await renderStudentDashboard_Menu(userData);
+                // Chama o renderChart DEPOIS que o HTML do menu for desenhado
                 await renderPerformanceChart();
             }
         } else {
@@ -96,6 +101,11 @@ export async function loadDashboard(user) {
         appContent.innerHTML = `<p>Ocorreu um erro ao carregar seus dados.</p>`;
     }
 }
+
+// --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
+// (Todo o resto do ficheiro é IDÊNTICO à versão 5.29)
+// (Não cole esta linha, apenas cole o resto do seu ficheiro 5.29)
+// ... (Cole aqui o resto do seu main.js, da Parte 7 até ao fim) ...
 
 // --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
 appContent.addEventListener('click', async (e) => {
