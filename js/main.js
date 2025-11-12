@@ -1,12 +1,17 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO 5.28 - ESTÁVEL - Caderno de Acertos)
+ * ARQUIVO: js/main.js (VERSÃO 5.33 - CORREÇÃO CRÍTICA DO GRÁFICO)
+ *
+ * NOVIDADES:
+ * - Corrigido o bug que impedia o dashboard do aluno de
+ * carregar.
+ * - 'loadDashboard' agora passa corretamente os dados
+ * para 'renderPerformanceChart'.
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-import { auth, db } from './auth.js'; // (CORRIGIDO) Volta a importar do auth.js
-import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { auth, db } from './firebase-config.js'; 
 import { 
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
     setDoc, increment 
@@ -45,22 +50,14 @@ let quizTempoRestante = null;
 
 
 // --- [ PARTE 5: LISTENER DE AUTENTICAÇÃO ] ---
-// (CORRIGIDO) Este é o porteiro do main.js
-onAuthStateChanged(auth, (user) => {
-    if (user) {
-        loadDashboard(user);
-    } else {
-        appContent.innerHTML = ''; // Limpa o painel se o utilizador fizer logout
-        if (cronometroInterval) clearInterval(cronometroInterval); 
-    }
-});
+// (Removido - O auth.js agora controla tudo)
+
 
 // --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
-async function loadDashboard(user) {
+export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null; 
     try {
-        appContent.innerHTML = renderLoadingState(); // Mostra "A carregar..."
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
         
@@ -95,8 +92,20 @@ async function loadDashboard(user) {
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
-                // (CORRIGIDO) Apenas desenha o HTML. Sem gráficos.
-                appContent.innerHTML = await renderStudentDashboard_Menu(userData);
+                // (CORRIGIDO)
+                // 1. Pega no HTML E nos dados do gráfico
+                const { dashboardHtml, chartLabels, chartData } = await renderStudentDashboard_Menu(userData);
+                
+                // 2. Desenha o HTML
+                appContent.innerHTML = dashboardHtml;
+                
+                // 3. Desenha o gráfico, SE houver dados
+                if (chartLabels.length > 0) {
+                    // Espera 1ms para garantir que o <canvas> existe no DOM
+                    setTimeout(() => {
+                        renderPerformanceChart(chartLabels, chartData);
+                    }, 1);
+                }
             }
         } else {
             appContent.innerHTML = `<p>Erro: Perfil não encontrado.</p>`;
@@ -796,10 +805,8 @@ async function renderStudentDashboard_Menu(userData) {
     const progressoSnapshot = await getDocs(progressoRef);
     let totalResolvidasGlobal = 0;
     let totalAcertosGlobal = 0;
-    let chartLabels = []; // (CORRIGIDO)
-    let chartData = [];   // (CORRIGIDO)
-    let materiaStatsHtml = ''; 
-
+    let chartLabels = [];
+    let chartData = []; 
     progressoSnapshot.forEach((doc) => {
         const materia = doc.id;
         const data = doc.data();
@@ -808,28 +815,23 @@ async function renderStudentDashboard_Menu(userData) {
         totalResolvidasGlobal += resolvidas;
         totalAcertosGlobal += acertos;
         const taxa = (resolvidas > 0) ? ((acertos / resolvidas) * 100).toFixed(0) : 0;
-
-        // (CORRIGIDO) Apenas lista de HTML, sem dados de gráfico
-        materiaStatsHtml += `
-            <div class="mb-3">
-                <div class="flex justify-between mb-1">
-                    <span class="text-sm font-medium text-blue-300 capitalize">${materia.replace('_', ' ')}</span>
-                    <span class="text-sm font-medium text-gray-300">${taxa}% (${acertos}/${resolvidas})</span>
-                </div>
-                <div class="w-full bg-gray-700 rounded-full h-2.5">
-                    <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${taxa}%"></div>
-                </div>
-            </div>
-        `;
+        if (resolvidas > 0) {
+            chartLabels.push(materia.replace(/_/g, ' '));
+            chartData.push(taxa);
+        }
     });
-
     const taxaAcertoGlobal = (totalResolvidasGlobal > 0) 
         ? ((totalAcertosGlobal / totalResolvidasGlobal) * 100).toFixed(0) 
         : 0;
     const totalDias = userData.totalDiasEstudo || 0;
     const sequencia = userData.sequenciaDias || 0;
-
-    return `
+    let desempenhoHtml = '';
+    if (chartLabels.length > 0) {
+        desempenhoHtml = `<canvas id="performanceChart"></canvas>`;
+    } else {
+        desempenhoHtml = `<p class="text-gray-400">Responda a algumas questões para ver o seu progresso aqui.</p>`;
+    }
+    const dashboardHtml = `
         <h1 class="text-3xl font-bold text-white mb-6">Olá, <span class="text-blue-400">${userData.nome}</span>!</h1>
         <div class="grid md:grid-cols-4 gap-6 mb-8">
             <div class="${cardStyle}"><h3 class="text-sm font-medium text-gray-400 uppercase">Questões Resolvidas</h3><p class="text-3xl font-bold text-white mt-2">${totalResolvidasGlobal}</p></div>
@@ -912,7 +914,7 @@ async function renderStudentDashboard_Menu(userData) {
             <div class="${cardStyle} md:col-span-1">
                 <h3 class="text-2xl font-bold text-white mb-6">Seu Desempenho</h3>
                 <div class="space-y-4">
-                    ${materiaStatsHtml || '<p class="text-gray-400">Responda a algumas questões para ver o seu progresso aqui.</p>'}
+                    ${desempenhoHtml}
                 </div>
                 <div class="mt-6 border-t border-gray-700 pt-4">
                     <button data-action="resetar-desempenho" 
@@ -924,12 +926,70 @@ async function renderStudentDashboard_Menu(userData) {
         </div>
     `;
     
-    // (CORRIGIDO) Retorna o HTML, mas não os dados do gráfico
-    return dashboardHtml;
+    // (CORRIGIDO) Retorna o HTML e os DADOS para o loadDashboard
+    return { dashboardHtml, chartLabels, chartData };
 }
 
-// (REMOVIDO) Função de Gráfico
-// function renderPerformanceChart(labels, data) { ... }
+async function renderPerformanceChart(labels, data) {
+    const ctx = document.getElementById('performanceChart');
+    if (!ctx) return; 
+
+    let chartStatus = Chart.getChart("performanceChart"); 
+    if (chartStatus != undefined) {
+        chartStatus.destroy();
+    }
+
+    new Chart(ctx, {
+        type: 'bar', 
+        data: {
+            labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)), 
+            datasets: [{
+                label: 'Taxa de Acerto (%)',
+                data: data,
+                backgroundColor: 'rgba(59, 130, 246, 0.7)', 
+                borderColor: 'rgba(59, 130, 246, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y', 
+            responsive: true,
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    max: 100, 
+                    ticks: {
+                        color: '#9ca3af' 
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)' 
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: '#e5e7eb' 
+                    },
+                    grid: {
+                        display: false 
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false 
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return ` Acerto: ${context.raw}%`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 
 function renderPlanner_TarefaDoDia(userData) {
     const cardStyle = "bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700";
