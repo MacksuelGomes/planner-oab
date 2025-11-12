@@ -1,13 +1,13 @@
 /*
  * ========================================================
- * ARQUIVO: js/auth.js (VERSÃO 2.2 - Corrigido com Config)
+ * ARQUIVO: js/auth.js (VERSÃO 2.0 - ESTÁVEL)
  * ========================================================
  */
 
-// --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-import { auth, db } from './firebase-config.js'; 
-
+// --- [ PARTE 1: IMPORTAR MÓDULOS DO FIREBASE ] ---
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
+    getAuth,
     onAuthStateChanged,
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
@@ -15,14 +15,32 @@ import {
     sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
+    getFirestore,
     doc,
     getDoc,
     setDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { 
+    getStorage 
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
-// Importa a função de desenhar o dashboard
-import { loadDashboard } from './main.js'; 
 
+// --- [ PARTE 2: CONFIGURAÇÃO DO FIREBASE ] ---
+const firebaseConfig = {
+    apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
+    authDomain: "meu-planner-oab.firebaseapp.com",
+    projectId: "meu-planner-oab",
+    storageBucket: "meu-planner-oab.firebasestorage.app",
+    messagingSenderId: "4187860413",
+    appId: "1:4187860413:web:b61239f784aaf5ed06f6d4"
+};
+
+// --- [ PARTE 3: INICIAR O FIREBASE E EXPORTAR SERVIÇOS ] ---
+const app = initializeApp(firebaseConfig);
+
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app); 
 
 // --- [ PARTE 4: SELETORES DO DOM (OS NOSSOS ECRÃS) ] ---
 const loadingScreen = document.getElementById('loading-screen');
@@ -56,8 +74,7 @@ onAuthStateChanged(auth, async (user) => {
 
             if (userDoc.exists()) {
                 userEmailElement.textContent = user.email;
-                showScreen('app'); // 1. Mostra o ecrã da app
-                loadDashboard(user); // 2. (NOVO) Chama o main.js para desenhar o conteúdo
+                showScreen('app');
             } else {
                 authScreen.innerHTML = renderProfileForm(user);
                 showScreen('auth');
@@ -98,7 +115,6 @@ authScreen.addEventListener('submit', async (e) => {
     e.preventDefault(); 
     const messageEl = e.target.querySelector('#auth-message');
     
-    // --- [ AÇÃO: LOGIN ] ---
     if (e.target.id === 'form-login') {
         const email = e.target.email.value;
         const password = e.target.password.value;
@@ -108,8 +124,6 @@ authScreen.addEventListener('submit', async (e) => {
             messageEl.textContent = "Email ou senha inválidos.";
         }
     }
-
-    // --- [ AÇÃO: REGISTO ] ---
     if (e.target.id === 'form-register') {
         const email = e.target.email.value;
         const password = e.target.password.value;
@@ -119,8 +133,6 @@ authScreen.addEventListener('submit', async (e) => {
             messageEl.textContent = "Erro ao criar conta. Tente outro e-mail.";
         }
     }
-
-    // --- [ AÇÃO: COMPLETAR PERFIL ] ---
     if (e.target.id === 'form-profile') {
         const nome = e.target.nome.value;
         const user = auth.currentUser;
@@ -135,12 +147,11 @@ authScreen.addEventListener('submit', async (e) => {
                 email: user.email,
                 criadoEm: new Date()
             });
+            // O onAuthStateChanged tratará de mostrar o app
         } catch (error) {
             messageEl.textContent = "Erro ao guardar o perfil.";
         }
     }
-    
-    // --- [ AÇÃO: RESET DE SENHA ] ---
     if (e.target.id === 'form-reset') {
         const email = e.target.email.value;
         try {
@@ -189,7 +200,6 @@ function renderLoginForm(errorMsg = "") {
         </div>
     `;
 }
-
 function renderRegisterForm(errorMsg = "") {
     return `
         <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
@@ -226,7 +236,6 @@ function renderRegisterForm(errorMsg = "") {
         </div>
     `;
 }
-
 function renderProfileForm(user, errorMsg = "") {
     return `
         <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
@@ -252,7 +261,6 @@ function renderProfileForm(user, errorMsg = "") {
         </div>
     `;
 }
-
 function renderResetPasswordForm(errorMsg = "") {
     return `
         <div class="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-lg shadow-xl">
