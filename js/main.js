@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO FINAL - MENUS RESTAURADOS)
+ * ARQUIVO: js/main.js (VERSÃO FINAL - SIMULADOS CORRIGIDOS)
  * ========================================================
  */
 
@@ -33,7 +33,6 @@ function ensureAppContent() {
 }
 
 // --- [ 2. DADOS E CONSTANTES ] ---
-// Nomes exatos como estão no banco de dados
 const CICLO_DE_ESTUDOS = [
     "Ética Profissional", "Direito Constitucional", "Direito Civil", 
     "Processo Civil", "Direito Penal", "Processo Penal", 
@@ -295,17 +294,26 @@ async function handleStartSimuladoDropdown() {
     if (!select || !select.value) return alert("Selecione uma edição.");
     const [num, rom] = select.value.split(',');
     appContent.innerHTML = renderLoadingState();
-    const variacoes = [`Exame ${rom}`, `OAB ${rom}`, num, rom, `Exame ${num}`];
+    
+    // O campo 'edicao' no Firestore tem formato "Exame IV", "Exame X", etc.
+    // Vamos tentar encontrar exatamente esse formato.
+    const edicaoBuscada = `Exame ${rom}`; 
+    const variacoes = [edicaoBuscada, `OAB ${rom}`, num, rom]; 
+    
     try {
         const q = query(collection(db, 'questoes_oab'), where("edicao", "in", variacoes));
         const snapshot = await getDocs(q);
+        
         if (snapshot.empty) {
-            appContent.innerHTML = `<div class="text-center p-10"><p>Simulado não encontrado.</p>${getVoltarButtonHtml()}</div>`;
+            appContent.innerHTML = `<div class="text-center p-10"><p>Simulado não encontrado para edição <strong>${edicaoBuscada}</strong>.</p>${getVoltarButtonHtml()}</div>`;
             return;
         }
+        
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        
         iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60); 
+        
     } catch (error) {
         appContent.innerHTML = renderErrorState(error.message);
     }
