@@ -17,14 +17,8 @@ import {
 
 // --- 1. CONFIGURAÇÃO DO FIREBASE ---
 // ⚠️ SUBSTITUA ESTE BLOCO PELA SUA CHAVE REAL DO FIREBASE
-const firebaseConfig = {
-    apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
-    authDomain: "meu-planner-oab.firebaseapp.com",
-    projectId: "meu-planner-oab",
-    storageBucket: "meu-planner-oab.firebasestorage.app",
-    messagingSenderId: "4187860413",
-    appId: "1:4187860413:web:b61239f784aaf5ed06f6d4"
-};
+const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 // --- 2. INICIALIZAÇÃO ---
 let app, auth, db;
