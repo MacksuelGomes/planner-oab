@@ -71,3 +71,68 @@ showScreen('auth');
 
 function showScreen(name) {
 console.log("📱 Mostrar tela:", name);
+
+  }
+
+// --- 5. PERFIL ---
+async function checkUserProfile(user) {
+showScreen('loading');
+
+  }
+
+function updateUserDisplay(userData) {
+const nameEl = document.getElementById('user-name-display');
+const emailEl = document.getElementById('user-email-display');
+if (nameEl) nameEl.textContent = userData.nome || 'Aluno';
+if (emailEl && currentUser) emailEl.textContent = currentUser.email;
+}
+
+function prefillProfileForm(user) {
+const emailInput = document.getElementById('profile-email');
+if (emailInput) emailInput.value = user.email;
+}
+
+// --- 6. EVENTOS ---
+if (loginForm) {
+loginForm.addEventListener('submit', async (e) => {
+e.preventDefault();
+const email = document.getElementById('login-email').value;
+const pass = document.getElementById('login-password').value;
+
+  }
+
+if (logoutButton) {
+logoutButton.addEventListener('click', () => signOut(auth));
+}
+
+if (profileSetupForm) {
+profileSetupForm.addEventListener('submit', async (e) => {
+e.preventDefault();
+const nome = document.getElementById('profile-nome').value;
+
+  }
+
+// Botões de alternância
+document.getElementById('show-reset-btn')?.addEventListener('click', () => {
+if (loginForm) loginForm.classList.add('hidden');
+if (resetForm) resetForm.classList.remove('hidden');
+});
+document.getElementById('back-to-login-btn')?.addEventListener('click', () => {
+if (resetForm) resetForm.classList.add('hidden');
+if (loginForm) loginForm.classList.remove('hidden');
+});
+
+if (resetForm) {
+resetForm.addEventListener('submit', async (e) => {
+e.preventDefault();
+const email = document.getElementById('reset-email').value;
+try {
+await sendPasswordResetEmail(auth, email);
+alert("Link enviado! Verifique o seu email.");
+} catch (error) {
+alert("Erro ao enviar email.");
+}
+});
+}
+
+export { auth, db, appId };
