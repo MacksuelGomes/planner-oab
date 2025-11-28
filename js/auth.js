@@ -24,9 +24,9 @@ const firebaseConfig = {
   storageBucket: "meu-planner-oab.firebasestorage.app",
   messagingSenderId: "4187860413",
   appId: "1:4187860413:web:b61239f784aaf5ed06f6d4"
-};;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+};
 
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 // --- 2. INICIALIZAÇÃO ---
 let app, auth, db;
@@ -61,14 +61,14 @@ const authErrorLogin = document.getElementById('auth-error-login');
 
 // --- 4. GESTÃO DE ESTADO (Ouvinte de Login) ---
 onAuthStateChanged(auth, async (user) => {
+    console.log("🔄 Estado de Autenticação alterado:", user ? "Logado" : "Deslogado");
+    
     if (user) {
         // Utilizador está logado
-        console.log("👤 Utilizador detetado:", user.email);
         currentUser = user;
         await checkUserProfile(user);
     } else {
         // Utilizador não está logado
-        console.log("👤 Nenhum utilizador logado.");
         currentUser = null;
         showScreen('auth'); // Mostra tela de login
     }
@@ -76,27 +76,34 @@ onAuthStateChanged(auth, async (user) => {
 
 // --- 5. FUNÇÕES DE NAVEGAÇÃO ENTRE TELAS ---
 function showScreen(screenName) {
+    console.log("📱 A mostrar tela:", screenName);
+    
     // Esconde tudo primeiro
-    loadingContainer.classList.add('hidden');
-    authContainer.classList.add('hidden');
-    profileSetupContainer.classList.add('hidden');
-    appContainer.classList.add('hidden');
+    if(loadingContainer) loadingContainer.classList.add('hidden');
+    if(authContainer) authContainer.classList.add('hidden');
+    if(profileSetupContainer) profileSetupContainer.classList.add('hidden');
+    if(appContainer) appContainer.classList.add('hidden');
 
     // Mostra a tela desejada
     switch (screenName) {
         case 'loading':
-            loadingContainer.classList.remove('hidden');
+            if(loadingContainer) loadingContainer.classList.remove('hidden');
             break;
         case 'auth':
-            authContainer.classList.remove('hidden');
+            if(authContainer) authContainer.classList.remove('hidden');
             break;
         case 'profile-setup':
-            profileSetupContainer.classList.remove('hidden');
+            if(profileSetupContainer) profileSetupContainer.classList.remove('hidden');
             break;
         case 'app':
-            appContainer.classList.remove('hidden');
+            if(appContainer) appContainer.classList.remove('hidden');
             // Inicia a lógica do app principal (se existir)
-            if (window.initApp) window.initApp(currentUser.uid); 
+            console.log("🔗 Tentando iniciar app principal...");
+            if (window.initApp) {
+                window.initApp(currentUser.uid); 
+            } else {
+                console.error("❌ Função window.initApp não encontrada! O main.js foi carregado?");
+            }
             break;
     }
 }
@@ -113,18 +120,19 @@ async function checkUserProfile(user) {
 
         if (docSnap.exists() && docSnap.data().isComplete) {
             // Perfil completo -> Vai para o App
+            console.log("✅ Perfil completo. Acedendo ao App.");
             updateUserDisplay(docSnap.data());
             showScreen('app');
         } else {
             // Perfil incompleto -> Vai para o Setup
-            console.log("📝 Perfil incompleto. Redirecionando para setup.");
+            console.log("📝 Perfil incompleto ou inexistente. Redirecionando para setup.");
             prefillProfileForm(user, docSnap.exists() ? docSnap.data() : null);
             showScreen('profile-setup');
         }
     } catch (error) {
         console.error("❌ Erro ao verificar perfil:", error);
-        alert("Erro ao carregar perfil. Tente recarregar a página.");
-        showScreen('auth'); // Volta pro login em caso de erro crítico
+        alert("Erro ao carregar perfil: " + error.message);
+        // showScreen('auth'); // Comentado para permitir depuração se falhar
     }
 }
 
@@ -136,7 +144,9 @@ function updateUserDisplay(userData) {
 }
 
 function prefillProfileForm(user, data) {
-    document.getElementById('profile-email').value = user.email;
+    const emailInput = document.getElementById('profile-email');
+    if(emailInput) emailInput.value = user.email;
+    
     if (data) {
         if (data.nome) document.getElementById('profile-nome').value = data.nome;
         if (data.telefone) document.getElementById('profile-telefone').value = data.telefone;
@@ -150,24 +160,32 @@ function prefillProfileForm(user, data) {
 if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        console.log("🔑 Tentativa de login...");
+        
         const email = document.getElementById('login-email').value;
         const pass = document.getElementById('login-password').value;
-        authErrorLogin.classList.add('hidden');
+        
+        if(authErrorLogin) authErrorLogin.classList.add('hidden');
         
         try {
             await signInWithEmailAndPassword(auth, email, pass);
-            // O onAuthStateChanged vai lidar com o redirecionamento
+            console.log("✅ Login efetuado com sucesso (aguardando onAuthStateChanged)");
         } catch (error) {
-            console.error("Erro login:", error.code);
-            authErrorLogin.textContent = "Email ou senha incorretos.";
-            authErrorLogin.classList.remove('hidden');
+            console.error("❌ Erro no login:", error.code, error.message);
+            if(authErrorLogin) {
+                authErrorLogin.textContent = "Email ou senha incorretos.";
+                authErrorLogin.classList.remove('hidden');
+            }
         }
     });
 }
 
 // LOGOUT
 if (logoutButton) {
-    logoutButton.addEventListener('click', () => signOut(auth));
+    logoutButton.addEventListener('click', () => {
+        console.log("👋 A sair...");
+        signOut(auth);
+    });
 }
 
 // PROFILE SETUP (Salvar Perfil)
@@ -175,7 +193,7 @@ if (profileSetupForm) {
     profileSetupForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const errorEl = document.getElementById('profile-error');
-        errorEl.classList.add('hidden');
+        if(errorEl) errorEl.classList.add('hidden');
         
         const nome = document.getElementById('profile-nome').value;
         const telefone = document.getElementById('profile-telefone').value;
@@ -183,8 +201,10 @@ if (profileSetupForm) {
         const novaSenha = document.getElementById('profile-nova-senha').value;
 
         if (!nome) {
-            errorEl.textContent = "O nome é obrigatório.";
-            errorEl.classList.remove('hidden');
+            if(errorEl) {
+                errorEl.textContent = "O nome é obrigatório.";
+                errorEl.classList.remove('hidden');
+            }
             return;
         }
 
@@ -205,13 +225,16 @@ if (profileSetupForm) {
                 updatedAt: Timestamp.now()
             }, { merge: true });
 
+            console.log("✅ Perfil salvo com sucesso.");
             // 3. Redireciona
             showScreen('app');
 
         } catch (error) {
-            console.error("Erro ao salvar perfil:", error);
-            errorEl.textContent = "Erro ao salvar. Se mudou a senha, faça login novamente.";
-            errorEl.classList.remove('hidden');
+            console.error("❌ Erro ao salvar perfil:", error);
+            if(errorEl) {
+                errorEl.textContent = "Erro ao salvar: " + error.message;
+                errorEl.classList.remove('hidden');
+            }
             
             if (error.code === 'auth/requires-recent-login') {
                 await signOut(auth);
@@ -245,16 +268,20 @@ if (resetForm) {
         const successMsg = document.getElementById('auth-success-reset');
         const errorMsg = document.getElementById('auth-error-reset');
         
-        successMsg.classList.add('hidden');
-        errorMsg.classList.add('hidden');
+        if(successMsg) successMsg.classList.add('hidden');
+        if(errorMsg) errorMsg.classList.add('hidden');
 
         try {
             await sendPasswordResetEmail(auth, email);
-            successMsg.textContent = "Link enviado! Verifique o seu email.";
-            successMsg.classList.remove('hidden');
+            if(successMsg) {
+                successMsg.textContent = "Link enviado! Verifique o seu email.";
+                successMsg.classList.remove('hidden');
+            }
         } catch (error) {
-            errorMsg.textContent = "Erro ao enviar. Verifique o email.";
-            errorMsg.classList.remove('hidden');
+            if(errorMsg) {
+                errorMsg.textContent = "Erro ao enviar. Verifique o email.";
+                errorMsg.classList.remove('hidden');
+            }
         }
     });
 }
