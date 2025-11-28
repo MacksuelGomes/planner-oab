@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/auth.js (VERSÃO FINAL RESTAURADA)
+ * ARQUIVO: js/auth.js (VERSÃO FINAL V3 - DESACOPLADA)
  * ========================================================
  */
 
@@ -20,10 +20,6 @@ import {
     getDoc,
     Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-// IMPORTAÇÃO DIRETA DO MAIN.JS 
-// (Garante que o window.initApp existe antes de tentarmos usá-lo)
-import './main.js';
 
 // --- 1. CONFIGURAÇÃO DO FIREBASE ---
 // 🔴 COLE A SUA CHAVE AQUI 🔴
@@ -46,10 +42,10 @@ try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
-    console.log("✅ Auth: Firebase iniciado com sucesso.");
+    console.log("✅ Auth: Firebase iniciado.");
 } catch (e) {
     console.error("Erro Firebase:", e);
-    alert("Erro crítico de configuração: " + e.message);
+    alert("Erro crítico: " + e.message);
 }
 
 // --- 3. DOM ---
@@ -69,8 +65,7 @@ onAuthStateChanged(auth, async (user) => {
     console.log("🔄 Estado Auth:", user ? "Logado" : "Deslogado");
     if (user) {
         currentUser = user;
-        // Pequeno delay para garantir que o DOM e main.js estão prontos
-        setTimeout(() => checkUserProfile(user), 100);
+        await checkUserProfile(user);
     } else {
         currentUser = null;
         showScreen('auth');
@@ -92,16 +87,18 @@ function showScreen(name) {
     if (name === 'app') {
         if(appContainer) appContainer.classList.remove('hidden');
         
-        // Tenta iniciar a aplicação principal
-        if (window.initApp) {
+        // Tenta iniciar o app principal
+        if (typeof window.initApp === 'function') {
             window.initApp(currentUser.uid);
         } else {
-            console.error("❌ window.initApp não encontrado! Tentando recarregar...");
-            // Fallback de segurança
-            setTimeout(() => {
-                if (window.initApp) window.initApp(currentUser.uid);
-                else alert("Erro: A aplicação não carregou corretamente. Recarregue a página.");
-            }, 1000);
+            console.warn("⚠️ initApp ainda não carregado. Aguardando...");
+            // Aguarda o main.js carregar (polling simples)
+            const checkInit = setInterval(() => {
+                if (typeof window.initApp === 'function') {
+                    clearInterval(checkInit);
+                    window.initApp(currentUser.uid);
+                }
+            }, 500);
         }
     }
 }
@@ -109,8 +106,6 @@ function showScreen(name) {
 // --- 5. PERFIL ---
 async function checkUserProfile(user) {
     showScreen('loading');
-    
-    // CAMINHO SIMPLIFICADO: users/{uid}
     const userDocRef = doc(db, 'users', user.uid);
 
     try {
@@ -126,12 +121,11 @@ async function checkUserProfile(user) {
         }
     } catch (error) {
         console.error("Erro perfil:", error);
-        // Se der erro de permissão ou rede, tenta mostrar o app de qualquer jeito se o utilizador já estiver logado
         if (currentUser) {
-             console.warn("Erro ao ler perfil, mas user está logado. Forçando entrada.");
+             console.warn("Erro ao ler perfil, mas logado. Forçando entrada.");
              showScreen('app');
         } else {
-             alert("Erro de banco de dados: " + error.message);
+             alert("Erro de conexão: " + error.message);
              showScreen('auth');
         }
     }
@@ -156,7 +150,6 @@ if (loginForm) {
         e.preventDefault();
         const email = document.getElementById('login-email').value;
         const pass = document.getElementById('login-password').value;
-        
         if(authErrorLogin) authErrorLogin.classList.add('hidden');
 
         try {
@@ -171,48 +164,26 @@ if (loginForm) {
     });
 }
 
-if (logoutButton) {
-    logoutButton.addEventListener('click', () => signOut(auth));
-}
+if (logoutButton) logoutButton.addEventListener('click', () => signOut(auth));
 
 if (profileSetupForm) {
     profileSetupForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const nome = document.getElementById('profile-nome').value;
-        
         try {
             const userDocRef = doc(db, 'users', currentUser.uid);
             await setDoc(userDocRef, {
-                nome, 
-                email: currentUser.email,
-                isComplete: true,
-                createdAt: Timestamp.now()
+                nome, email: currentUser.email, isComplete: true, createdAt: Timestamp.now()
             }, { merge: true });
-
             showScreen('app');
-        } catch (error) {
-            console.error(error);
-            alert("Erro salvar perfil: " + error.message);
-        }
+        } catch (error) { alert("Erro salvar perfil: " + error.message); }
     });
 }
 
-// Botões de alternância
 const btnReset = document.getElementById('show-reset-btn');
 const btnBack = document.getElementById('back-to-login-btn');
 
-if (btnReset) {
-    btnReset.addEventListener('click', () => {
-        loginForm.classList.add('hidden');
-        resetForm.classList.remove('hidden');
-    });
-}
-
-if (btnBack) {
-    btnBack.addEventListener('click', () => {
-        resetForm.classList.add('hidden');
-        loginForm.classList.remove('hidden');
-    });
-}
+if (btnReset) btnReset.addEventListener('click', () => { loginForm.classList.add('hidden'); resetForm.classList.remove('hidden'); });
+if (btnBack) btnBack.addEventListener('click', () => { resetForm.classList.add('hidden'); loginForm.classList.remove('hidden'); });
 
 export { auth, db, appId };
