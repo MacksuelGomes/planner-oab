@@ -1,37 +1,59 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO FINAL - INTEGRADA)
+ * ARQUIVO: js/main.js (VERSÃO FINAL - CORRIGIDA)
  * ========================================================
  */
 
 // --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
-// Importamos 'auth' e 'appId' do nosso ficheiro auth.js local
 import { auth, db, appId } from './auth.js'; 
 import { 
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
     setDoc, increment, orderBy, limit, Timestamp
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-// (Usamos a versão 11.6.1 para consistência com o auth.js)
 
 // --- [ PARTE 2: SELETORES DO DOM ] ---
-// O 'appContent' será o container dinâmico onde tudo é renderizado
-const appContent = document.getElementById('app-container').querySelector('main > div'); 
-// Nota: Ajustei o seletor para bater com o nosso HTML (dentro do main)
+const appContainer = document.getElementById('app-container');
+let appContent = null;
 
-// --- [ PARTE 3: DEFINIÇÃO DO CICLO DE ESTUDOS ] ---
+// Função auxiliar para garantir que o appContent existe
+function ensureAppContent() {
+    if (!appContainer) {
+        console.error("ERRO CRÍTICO: 'app-container' não encontrado no HTML.");
+        return null;
+    }
+    let contentDiv = appContainer.querySelector('#dynamic-content');
+    if (!contentDiv) {
+        // Procura o main
+        const main = appContainer.querySelector('main');
+        if (main) {
+            main.innerHTML = '<div id="dynamic-content"></div>';
+            contentDiv = main.querySelector('#dynamic-content');
+        } else {
+             // Se não tiver main, cria um div direto no appContainer (fallback)
+             contentDiv = document.createElement('div');
+             contentDiv.id = 'dynamic-content';
+             contentDiv.className = "flex-1 overflow-y-auto p-4 md:p-8"; // Classes do main
+             appContainer.appendChild(contentDiv);
+        }
+    }
+    return contentDiv;
+}
+
+// --- [ PARTE 3: CONSTANTES E CONFIGURAÇÃO ] ---
 const CICLO_DE_ESTUDOS = [
     "etica", "constitucional", "civil", "processo_civil", "penal", 
     "processo_penal", "administrativo", "tributario", "trabalho", 
     "processo_trabalho", "empresarial", 
     "etica", "constitucional", "civil", "processo_civil", "penal"
 ];
+
 const TODAS_MATERIAS = [
     "etica", "civil", "processo_civil", "penal", "processo_penal", 
     "constitucional", "administrativo", "tributario", "empresarial", 
-    "trabalho", "processo_trabalho"
+    "trabalho", "processo_trabalho", "humanos", "consumidor", "ambiental", "eca", "internacional"
 ];
 
-// --- [ PARTE 4: VARIÁVEIS DE ESTADO DO QUIZ ] ---
+// --- [ PARTE 4: ESTADO DA APLICAÇÃO ] ---
 let quizQuestoes = [];         
 let quizIndexAtual = 0;        
 let alternativaSelecionada = null; 
@@ -44,633 +66,644 @@ let anotacaoDebounceTimer = null;
 let quizReport = { acertos: 0, erros: 0, total: 0 };
 let quizTempoRestante = null; 
 
-// --- [ PARTE 5: INICIALIZAÇÃO (Chamada pelo auth.js) ] ---
+// --- [ PARTE 5: INICIALIZAÇÃO GLOBAL ] ---
 window.initApp = async function(uid) {
-    console.log("🚀 Iniciando App para:", uid);
-    // Carrega o Dashboard inicial
-    await loadDashboard(auth.currentUser);
+    console.log("🚀 main.js: Iniciando App para UID:", uid);
+    
+    appContent = ensureAppContent();
+    if (!appContent) return; // Aborta se não conseguiu criar o container
+
+    setupNavigation(); 
+    
+    // Tenta carregar o dashboard. Se falhar, mostra erro amigável.
+    try {
+        await loadDashboard({ uid: uid }); // Passa objeto user simples
+    } catch (error) {
+        console.error("Erro fatal na inicialização do Dashboard:", error);
+        appContent.innerHTML = `
+            <div class="flex flex-col items-center justify-center h-full text-center p-6">
+                <div class="text-red-500 text-6xl mb-4"><ion-icon name="alert-circle"></ion-icon></div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">Ops! Algo correu mal.</h2>
+                <p class="text-gray-600 mb-6">Não conseguimos carregar os seus dados. Verifique a sua conexão.</p>
+                <button onclick="window.location.reload()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
+                    Tentar Novamente
+                </button>
+                <p class="text-xs text-gray-400 mt-8">Erro técnico: ${error.message}</p>
+            </div>
+        `;
+    }
 };
 
-// --- [ PARTE 6: LÓGICA DE CARREGAMENTO DO DASHBOARD ] ---
+// --- [ PARTE 6: LÓGICA PRINCIPAL (DASHBOARD) ] ---
 export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null; 
     
-    // Mostra loading enquanto carrega dados
     appContent.innerHTML = renderLoadingState();
 
     try {
-        // Caminho corrigido: /artifacts/{appId}/users/{userId}
+        // Caminho: /artifacts/{appId}/users/{userId}
+        // Verifique se 'appId' está correto no auth.js
+        if (!appId) throw new Error("appId não definido. Verifique auth.js");
+
         const userDocRef = doc(db, `artifacts/${appId}/users`, user.uid);
         const userDoc = await getDoc(userDocRef);
         
         if (userDoc.exists()) {
             let userData = userDoc.data();
             
-            // Lógica de Sequência (Streak)
-            const hojeStr = getFormattedDate(new Date());
-            // Converte Timestamp do Firestore para Date
-            const ultimoLoginData = userData.ultimoLogin ? (userData.ultimoLogin.toDate ? userData.ultimoLogin.toDate() : new Date(userData.ultimoLogin)) : null;
-            const ultimoLoginStr = ultimoLoginData ? getFormattedDate(ultimoLoginData) : null;
-
-            if (ultimoLoginStr !== hojeStr) {
-                const ontem = new Date();
-                ontem.setDate(ontem.getDate() - 1);
-                const ontemStr = getFormattedDate(ontem);
-
-                const totalDiasEstudo = (userData.totalDiasEstudo || 0) + 1;
-                let sequenciaDias = 1; 
-                
-                if (ultimoLoginStr === ontemStr) {
-                    sequenciaDias = (userData.sequenciaDias || 0) + 1;
-                }
-                
-                const novosDados = {
-                    totalDiasEstudo: totalDiasEstudo,
-                    sequenciaDias: sequenciaDias,
-                    ultimoLogin: Timestamp.now() // Usa Timestamp do Firestore
-                };
-                await updateDoc(userDocRef, novosDados);
-                userData = { ...userData, ...novosDados };
-            }
-
+            // Atualização de Sequência (Streak)
+            await atualizarSequenciaDias(userData, userDocRef);
+            
+            // Verifica se é Admin ou Aluno
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
-                // 1. Pega no HTML E nos dados do gráfico
-                const { dashboardHtml, chartLabels, chartData } = await renderStudentDashboard_Menu(userData);
+                // Renderiza Dashboard do Aluno
+                const stats = await calcularEstatisticasEstudo(user.uid);
+                appContent.innerHTML = renderStudentDashboard(userData, stats);
                 
-                // 2. Desenha o HTML
-                appContent.innerHTML = dashboardHtml;
-                
-                // 3. Desenha o gráfico, SE houver dados
-                if (chartLabels.length > 0) {
-                    setTimeout(() => {
-                        renderPerformanceChart(chartLabels, chartData);
-                    }, 100); // Pequeno delay para garantir renderização
+                // Inicializa gráfico (se houver dados)
+                if (stats.chartLabels.length > 0) {
+                    setTimeout(() => renderPerformanceChart(stats.chartLabels, stats.chartData), 100);
                 }
             }
         } else {
-            appContent.innerHTML = `<p class="text-center text-gray-500 mt-10">Perfil não encontrado. Tente recarregar.</p>`;
+            // Se o utilizador existe no Auth mas não no Firestore (erro raro)
+            console.warn("Perfil não encontrado no Firestore para UID:", user.uid);
+            appContent.innerHTML = `<div class="text-center p-8 text-gray-500">Perfil de utilizador não encontrado. <br> <button onclick="window.location.reload()" class="text-blue-600 underline">Recarregar</button></div>`;
         }
     } catch (error) { 
-        console.error("Erro ao carregar dashboard:", error);
-        appContent.innerHTML = `<p class="text-center text-red-500 mt-10">Ocorreu um erro ao carregar seus dados: ${error.message}</p>`;
+        // Relança o erro para ser capturado pelo initApp
+        throw error;
     }
 }
 
-// --- [ PARTE 7: GESTOR DE EVENTOS PRINCIPAL ] ---
-// Usamos delegação de eventos no 'appContent' para lidar com elementos dinâmicos
-appContent.addEventListener('click', async (e) => {
-    
-    const actionButton = e.target.closest('[data-action]');
-    const alternativaEl = e.target.closest('[data-alternativa]');
+// --- [ AUXILIAR: LÓGICA DE NEGÓCIO ] ---
 
-    // Seleção de alternativa no Quiz
-    if (alternativaEl && !respostaConfirmada) {
-        if (!actionButton) { 
-            alternativaSelecionada = alternativaEl.dataset.alternativa;
-            document.querySelectorAll('[data-alternativa]').forEach(el => {
-                el.classList.remove('bg-blue-100', 'border-blue-500', 'text-blue-900');
-                el.classList.add('bg-white', 'text-gray-700', 'border-gray-200');
-            });
-            alternativaEl.classList.remove('bg-white', 'text-gray-700', 'border-gray-200');
-            alternativaEl.classList.add('bg-blue-100', 'border-blue-500', 'text-blue-900');
-            return; 
-        }
-    }
-
-    if (!actionButton) return; 
-
-    const action = actionButton.dataset.action; 
-    
-    // --- Ações de Admin ---
-    if (action === 'show-create-question-form') { appContent.innerHTML = renderCreateQuestionForm(); }
-    if (action === 'show-list-questions') { await renderListQuestionsUI(); }
-    if (action === 'admin-voltar-painel') { loadDashboard(auth.currentUser); }
-    if (action === 'delete-question') {
-        const docId = actionButton.dataset.id;
-        await handleDeleteQuestion(docId, actionButton);
-    }
-
-    // --- Ações de Aluno (Menus) ---
-    if (action === 'show-guided-planner') {
-        quizReturnPath = 'menu'; 
-        const user = auth.currentUser;
-        // Caminho corrigido
-        const userDoc = await getDoc(doc(db, `artifacts/${appId}/users`, user.uid));
-        const userData = userDoc.data();
-        if (userData.metaDiaria) {
-            appContent.innerHTML = renderPlanner_TarefaDoDia(userData);
-        } else {
-            appContent.innerHTML = renderPlannerSetupForm();
-        }
-    }
-    if (action === 'show-free-study') {
-        quizReturnPath = 'free-study'; 
-        appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
-    }
-    if (action === 'show-simulados-menu') {
-        quizReturnPath = 'simulados'; 
-        appContent.innerHTML = renderSimuladosMenu();
-    }
-    if (action === 'show-caderno-erros') {
-        quizReturnPath = 'erros';
-        await renderCadernoErrosMenu(); 
-    }
-    if (action === 'show-caderno-acertos') {
-        quizReturnPath = 'acertos';
-        await renderCadernoAcertosMenu(); 
-    }
-    if (action === 'show-anotacoes-menu') {
-        appContent.innerHTML = renderAnotacoesMenu();
-    }
-    if (action === 'show-anotacoes-editor') {
-        const materia = actionButton.dataset.materia;
-        await renderAnotacoesEditor(materia);
-    }
-    if (action === 'student-voltar-menu') {
-        loadDashboard(auth.currentUser); 
-    }
-
-    // --- Ações de Aluno (Iniciar Quizzes) ---
-    if (action === 'start-study-session') {
-        const materia = actionButton.dataset.materia;
-        await handleStartStudySession(materia);
-    }
-    if (action === 'start-simulado-edicao-dropdown') {
-        const selectEl = document.getElementById('select-simulado-edicao');
-        const valor = selectEl.value; 
-        
-        if (valor) { 
-            const [num, rom] = valor.split(','); 
-            await handleStartSimulado(num, rom); 
-        } else {
-            alert("Selecione uma edição primeiro.");
-        }
-    }
-    if (action === 'start-simulado-assertivo') { 
-        await handleStartSimuladoAssertivo();
-    }
-    if (action === 'start-quiz-erros') {
-        await handleStartCadernoErros();
-    }
-    if (action === 'start-quiz-acertos') {
-        await handleStartCadernoAcertos();
-    }
-    
-    // --- Ações de Aluno (Resetar) ---
-    if (action === 'resetar-desempenho') {
-        await handleResetarDesempenho(); 
-    }
-    if (action === 'limpar-caderno-erros') {
-        await handleLimparCadernoErros();
-    }
-    if (action === 'limpar-caderno-acertos') {
-        await handleLimparCadernoAcertos();
-    }
-
-    // --- Ações do Quiz ---
-    if (action === 'confirmar-resposta') { await handleConfirmarResposta(); }
-    if (action === 'proxima-questao') { await handleProximaQuestao(); }
-    if (action === 'sair-quiz') {
-        if (quizReturnPath === 'free-study') {
-            appContent.innerHTML = renderFreeStudyDashboard(auth.currentUser.uid);
-        } else if (quizReturnPath === 'simulados') {
-            appContent.innerHTML = renderSimuladosMenu();
-        } else {
-            loadDashboard(auth.currentUser); 
-        }
-    }
-});
-
-appContent.addEventListener('submit', async (e) => {
-    e.preventDefault(); 
-    if (e.target.id === 'form-create-question') {
-        await handleCreateQuestionSubmit(e.target);
-    }
-    if (e.target.id === 'form-planner-setup') {
-        await handleSavePlannerSetup(e.target);
-    }
-});
-
-appContent.addEventListener('input', (e) => {
-    if (e.target.id === 'anotacoes-textarea') {
-        const statusEl = document.getElementById('anotacoes-status');
-        const materia = e.target.dataset.materia;
-        const conteudo = e.target.value;
-        statusEl.textContent = 'A guardar...';
-        
-        if (anotacaoDebounceTimer) clearTimeout(anotacaoDebounceTimer);
-        
-        anotacaoDebounceTimer = setTimeout(async () => {
-            await handleSalvarAnotacao(materia, conteudo);
-            statusEl.textContent = 'Guardado!';
-        }, 1500);
-    }
-});
-
-
-// --- [ PARTE 8: LÓGICA DE ADMIN (Adaptada para 'questoes_oab') ] ---
-async function handleCreateQuestionSubmit(form) {
-    const statusEl = document.getElementById('form-status');
-    statusEl.textContent = 'A guardar...';
+async function atualizarSequenciaDias(userData, userDocRef) {
     try {
-        const formData = new FormData(form);
-        const materia = formData.get('materia');
-        
-        const questaoData = {
-            materia: materia,
-            edicao: formData.get('edicao'), 
-            tema: formData.get('tema'),
-            enunciado: formData.get('enunciado'),
-            alternativas: { 
-                a: formData.get('alt_a'), 
-                b: formData.get('alt_b'), 
-                c: formData.get('alt_c'), 
-                d: formData.get('alt_d') 
-            },
-            correta: formData.get('correta').toLowerCase(),
-            comentario: formData.get('comentario'),
-            // ID customizado ou automático
-            id: `${materia.toUpperCase()}-${Date.now().toString().slice(-5)}` 
-        };
-        
-        // Usa a coleção oficial 'questoes_oab'
-        const questaoRef = doc(db, 'questoes_oab', questaoData.id);
-        await setDoc(questaoRef, questaoData);
-
-        statusEl.textContent = 'Questão guardada com sucesso!';
-        statusEl.className = 'text-green-600 text-sm mt-4 font-bold';
-        form.reset();
-    } catch (error) {
-        console.error("Erro ao guardar questão:", error);
-        statusEl.textContent = `Erro ao guardar: ${error.message}`;
-        statusEl.className = 'text-red-600 text-sm mt-4 font-bold';
-    }
-}
-
-async function handleDeleteQuestion(docId, button) {
-    if (!confirm('Tem a certeza que quer apagar esta questão? Esta ação não pode ser desfeita.')) { return; }
-    button.textContent = 'A apagar...';
-    button.disabled = true;
-    try {
-        await deleteDoc(doc(db, 'questoes_oab', docId));
-        const itemParaApagar = document.getElementById(`item-${docId}`);
-        if (itemParaApagar) { itemParaApagar.remove(); }
-    } catch (error) {
-        console.error("Erro ao apagar:", error);
-        button.textContent = 'Erro';
-        alert(`Erro ao apagar: ${error.message}`);
-    }
-}
-
-
-// --- [ PARTE 9: LÓGICA DE ALUNO ] ---
-
-function getFormattedDate(date) {
-    const year = date.getFullYear();
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-async function handleResetarDesempenho() {
-    if (!confirm("Tem a certeza ABSOLUTA que quer resetar todo o seu progresso?")) { return; }
-    appContent.innerHTML = renderLoadingState(); 
-    try {
-        const user = auth.currentUser;
-        if (!user) return;
-        const userDocRef = doc(db, `artifacts/${appId}/users`, user.uid);
-        
-        // Apaga subcoleções
-        const collections = ['progresso', 'questoes_erradas', 'anotacoes', 'questoes_acertadas'];
-        for (const colName of collections) {
-            const colRef = collection(userDocRef, colName);
-            const snap = await getDocs(colRef);
-            const promises = snap.docs.map(doc => deleteDoc(doc.ref));
-            await Promise.all(promises);
-        }
-
-        await updateDoc(userDocRef, {
-            cicloIndex: 0,
-            totalDiasEstudo: 0,
-            sequenciaDias: 0
-        });
-        
-        loadDashboard(user);
-    } catch (error) {
-        console.error("Erro ao resetar desempenho:", error);
-        appContent.innerHTML = `<p class="text-red-500 text-center mt-10">Erro ao resetar seu progresso: ${error.message}</p>`;
-    }
-}
-
-// (Funções de limpar cadernos são análogas, omitidas por brevidade, mas seguem a mesma lógica de deleteDoc)
-async function handleLimparCadernoErros() { /* ... Lógica de delete ... */ await renderCadernoErrosMenu(); }
-async function handleLimparCadernoAcertos() { /* ... Lógica de delete ... */ await renderCadernoAcertosMenu(); }
-
-async function handleSavePlannerSetup(form) {
-    const meta = form.metaDiaria.value;
-    const botao = form.querySelector('button');
-    botao.textContent = 'A guardar...';
-    botao.disabled = true;
-    try {
-        const user = auth.currentUser;
-        const userDocRef = doc(db, `artifacts/${appId}/users`, user.uid);
-        await updateDoc(userDocRef, {
-            metaDiaria: parseInt(meta, 10), 
-            cicloIndex: 0 
-        });
-        const userDoc = await getDoc(userDocRef);
-        appContent.innerHTML = renderPlanner_TarefaDoDia(userDoc.data());
-    } catch (error) {
-        console.error("Erro ao salvar configuração:", error);
-        botao.textContent = 'Erro ao salvar!';
-    }
-}
-
-// --- [ FUNÇÕES DE INÍCIO DE QUIZ ] ---
-
-async function handleStartStudySession(materia) {
-    appContent.innerHTML = renderLoadingState(); 
-    try {
-        // Busca na coleção correta: 'questoes_oab'
-        const questoesRef = collection(db, 'questoes_oab');
-        
-        // NOTA: 'materia' no banco pode estar como "Direito Civil" (com maiúsculas e espaços)
-        // Precisamos normalizar ou garantir que o botão envie o valor exato do banco
-        // Assumindo que 'materia' vem formatada corretamente do botão
-        const q = query(questoesRef, where("materia", "==", materia), limit(50)); // Limite de segurança
-        
-        const querySnapshot = await getDocs(q);
-        const questoesArray = [];
-        querySnapshot.forEach((doc) => {
-            questoesArray.push({ ...doc.data(), docId: doc.id });
-        });
-        
-        if (questoesArray.length === 0) {
-            let returnButtonHtml = getVoltarButtonHtml(); 
-            appContent.innerHTML = `<div class="text-center mt-10"><p class="text-gray-500 mb-4">Nenhuma questão de "${materia}" encontrada.</p>${returnButtonHtml}</div>`;
-            return;
-        }
-        
-        const userDoc = await getDoc(doc(db, `artifacts/${appId}/users`, auth.currentUser.uid));
-        const userData = userDoc.data();
-        
-        if (quizReturnPath === 'menu') { 
-            metaQuestoesDoDia = userData?.metaDiaria || 20;
-        } else { 
-            metaQuestoesDoDia = questoesArray.length;
-        }
-        
-        configurarQuiz(questoesArray, `Estudo: ${materia}`);
-        
-    } catch (error) {
-        console.error("Erro ao carregar questões:", error);
-        appContent.innerHTML = `<p class="text-red-500 text-center mt-10">Erro: ${error.message}</p>`;
-    }
-}
-
-function configurarQuiz(questoes, titulo, tempo = null) {
-    quizQuestoes = questoes; 
-    quizIndexAtual = 0;        
-    alternativaSelecionada = null;
-    respostaConfirmada = false;
-    quizTitle = titulo;
-    quizReport = { acertos: 0, erros: 0, total: 0 };
-    quizTempoRestante = tempo; 
-    renderQuiz(); 
-    if (tempo) startCronometro();
-}
-
-async function finalizarQuiz() {
-    if (cronometroInterval) clearInterval(cronometroInterval); 
-    quizTempoRestante = null;
-    let textoFinal = `Você completou ${quizReport.total} questões.`;
-    let textoBotao = "Voltar";
-    
-    if (quizReturnPath === 'menu') { 
-        textoFinal = `Você completou sua meta de ${metaQuestoesDoDia} questões!`;
-        textoBotao = "Voltar ao Menu Principal";
-        try {
-            const user = auth.currentUser;
-            const userDocRef = doc(db, `artifacts/${appId}/users`, user.uid);
-            const userDoc = await getDoc(userDocRef);
-            const dadosAtuais = userDoc.data();
-            let novoIndex = (dadosAtuais.cicloIndex || 0) + 1;
-            if (novoIndex >= CICLO_DE_ESTUDOS.length) { novoIndex = 0; }
-            await updateDoc(userDocRef, { cicloIndex: novoIndex });
-        } catch (error) { console.error("Erro ao atualizar ciclo:", error); }
-    }
-    
-    appContent.innerHTML = renderQuizReport(quizReport, textoFinal, textoBotao);
-}
-
-async function handleProximaQuestao() {
-    quizIndexAtual++; 
-    const quizTerminou = quizIndexAtual >= quizQuestoes.length || (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia);
-    if (quizTerminou) {
-        finalizarQuiz(); 
-    } else {
-        alternativaSelecionada = null;
-        respostaConfirmada = false;
-        renderQuiz(); 
-    }
-}
-
-async function handleConfirmarResposta() { 
-    if (alternativaSelecionada === null) {
-        alert('Por favor, selecione uma alternativa.');
-        return;
-    }
-    if (respostaConfirmada) return; 
-    respostaConfirmada = true;
-    
-    const questaoAtual = quizQuestoes[quizIndexAtual];
-    // Normaliza para minúsculo para comparar (a, b, c, d)
-    const correta = questaoAtual.correta.toLowerCase();
-    const selecionada = alternativaSelecionada.toLowerCase();
-    
-    const acertou = selecionada === correta;
-    
-    quizReport.total++;
-    if (acertou) quizReport.acertos++;
-    else quizReport.erros++;
-    
-    try {
-        // Salva estatísticas
-        await salvarProgresso(questaoAtual.materia, acertou);
-        
-        // Salva no caderno de erros/acertos
-        const user = auth.currentUser;
-        const questaoId = questaoAtual.docId || questaoAtual.id; 
-        if (questaoId) {
-            const userRef = doc(db, `artifacts/${appId}/users`, user.uid);
-            const erroRef = doc(collection(userRef, 'questoes_erradas'), questaoId);
-            const acertoRef = doc(collection(userRef, 'questoes_acertadas'), questaoId);
-            
-            if (!acertou) {
-                await setDoc(erroRef, questaoAtual);
-                await deleteDoc(acertoRef); 
+        const hojeStr = getFormattedDate(new Date());
+        // Converte Timestamp do Firestore com segurança
+        let ultimoLoginData = new Date();
+        if (userData.ultimoLogin) {
+            if (userData.ultimoLogin.toDate) {
+                ultimoLoginData = userData.ultimoLogin.toDate();
+            } else if (userData.ultimoLogin instanceof Date) {
+                ultimoLoginData = userData.ultimoLogin;
             } else {
-                await setDoc(acertoRef, questaoAtual);
-                await deleteDoc(erroRef);
+                // Tenta converter string ou número
+                ultimoLoginData = new Date(userData.ultimoLogin);
             }
         }
-    } catch (error) {
-        console.error("Erro ao salvar progresso:", error);
+        
+        const ultimoLoginStr = getFormattedDate(ultimoLoginData);
+
+        if (ultimoLoginStr !== hojeStr) {
+            const ontem = new Date();
+            ontem.setDate(ontem.getDate() - 1);
+            const ontemStr = getFormattedDate(ontem);
+
+            const totalDiasEstudo = (userData.totalDiasEstudo || 0) + 1;
+            let sequenciaDias = 1; 
+            
+            if (ultimoLoginStr === ontemStr) {
+                sequenciaDias = (userData.sequenciaDias || 0) + 1;
+            }
+            
+            await updateDoc(userDocRef, {
+                totalDiasEstudo,
+                sequenciaDias,
+                ultimoLogin: Timestamp.now()
+            });
+        }
+    } catch (e) {
+        console.warn("Erro ao atualizar sequência (não crítico):", e);
     }
-    
-    // Atualiza UI (Feedback Visual)
-    const alternativasEls = document.querySelectorAll('[data-alternativa]');
-    alternativasEls.forEach(el => {
-        const alt = el.dataset.alternativa.toLowerCase();
+}
+
+async function calcularEstatisticasEstudo(uid) {
+    try {
+        const progressoRef = collection(db, `artifacts/${appId}/users/${uid}/progresso`);
+        const snapshot = await getDocs(progressoRef);
         
-        // Remove estilos de seleção
-        el.classList.remove('bg-blue-100', 'border-blue-500', 'text-blue-900', 'bg-white', 'border-gray-200');
+        let totalResolvidas = 0;
+        let totalAcertos = 0;
+        let chartLabels = [];
+        let chartData = [];
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const materia = doc.id.replace(/_/g, ' '); 
+            const resolvidas = data.totalResolvidas || 0;
+            const acertos = data.totalAcertos || 0;
+            
+            totalResolvidas += resolvidas;
+            totalAcertos += acertos;
+            
+            if (resolvidas > 0) {
+                const taxa = ((acertos / resolvidas) * 100).toFixed(0);
+                chartLabels.push(materia);
+                chartData.push(taxa);
+            }
+        });
+
+        const taxaGlobal = totalResolvidas > 0 ? ((totalAcertos / totalResolvidas) * 100).toFixed(0) : 0;
         
-        if (alt === correta) {
-            el.classList.add('bg-green-100', 'border-green-500', 'text-green-900');
-        } else if (alt === selecionada && !acertou) {
-            el.classList.add('bg-red-100', 'border-red-500', 'text-red-900');
-        } else {
-            el.classList.add('bg-gray-50', 'border-gray-200', 'text-gray-400', 'opacity-60');
+        return { totalResolvidas, totalAcertos, taxaGlobal, chartLabels, chartData };
+    } catch (e) {
+        console.warn("Erro ao calcular estatísticas (retornando zeros):", e);
+        return { totalResolvidas: 0, totalAcertos: 0, taxaGlobal: 0, chartLabels: [], chartData: [] };
+    }
+}
+
+// --- [ PARTE 7: GESTOR DE EVENTOS (O Controlador) ] ---
+// Captura todos os cliques no container principal
+// Usamos 'appContainer' como listener global para garantir que pegamos eventos 
+// mesmo que o 'appContent' seja recriado.
+if (appContainer) {
+    appContainer.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-action]');
+        const alternativa = e.target.closest('[data-alternativa]');
+
+        // 1. Seleção de Alternativa no Quiz
+        if (alternativa && !respostaConfirmada) {
+            if (!btn) { 
+                alternativaSelecionada = alternativa.dataset.alternativa;
+                // Atualiza UI
+                document.querySelectorAll('[data-alternativa]').forEach(el => {
+                    el.className = "p-4 border rounded-lg cursor-pointer transition flex items-start gap-3 bg-white border-gray-200 text-gray-700 hover:bg-gray-50";
+                });
+                alternativa.className = "p-4 border rounded-lg cursor-pointer transition flex items-start gap-3 bg-blue-50 border-blue-500 text-blue-800";
+                return;
+            }
+        }
+
+        if (!btn) return;
+        const action = btn.dataset.action;
+        console.log("Ação clicada:", action); // Debug
+
+        // 2. Roteamento de Ações
+        try {
+            switch(action) {
+                // --- Admin ---
+                case 'show-create-question-form': appContent.innerHTML = renderCreateQuestionForm(); break;
+                case 'show-list-questions': await renderListQuestionsUI(); break;
+                case 'admin-voltar-painel': loadDashboard(auth.currentUser); break;
+                case 'delete-question': await handleDeleteQuestion(btn.dataset.id, btn); break;
+
+                // --- Menus de Aluno ---
+                case 'show-guided-planner': await abrirPlannerGuiado(); break;
+                case 'show-free-study': quizReturnPath = 'free-study'; appContent.innerHTML = renderFreeStudyMenu(); break;
+                case 'show-simulados-menu': quizReturnPath = 'simulados'; appContent.innerHTML = renderSimuladosMenu(); break;
+                case 'show-caderno-erros': quizReturnPath = 'erros'; await renderCadernoErrosMenu(); break;
+                case 'show-caderno-acertos': quizReturnPath = 'acertos'; await renderCadernoAcertosMenu(); break;
+                case 'show-anotacoes-menu': appContent.innerHTML = renderAnotacoesMenu(); break;
+                case 'student-voltar-menu': loadDashboard(auth.currentUser); break;
+                
+                // --- Ações Específicas ---
+                case 'show-anotacoes-editor': await renderAnotacoesEditor(btn.dataset.materia); break;
+                case 'start-study-session': await handleStartStudySession(btn.dataset.materia); break;
+                
+                // --- Iniciar Quizzes ---
+                case 'start-simulado-edicao-dropdown': await handleStartSimuladoDropdown(); break;
+                case 'start-simulado-assertivo': await handleStartSimuladoAssertivo(); break; // Adicionado
+                case 'start-quiz-erros': await handleStartCaderno('questoes_erradas', 'Caderno de Erros'); break;
+                case 'start-quiz-acertos': await handleStartCaderno('questoes_acertadas', 'Caderno de Acertos'); break;
+                
+                // --- Reset ---
+                case 'resetar-desempenho': await handleResetarDesempenho(); break;
+                case 'limpar-caderno-erros': await handleLimparCaderno('questoes_erradas'); break; // Adicionado
+                case 'limpar-caderno-acertos': await handleLimparCaderno('questoes_acertadas'); break; // Adicionado
+                
+                // --- Quiz Flow ---
+                case 'confirmar-resposta': await handleConfirmarResposta(); break;
+                case 'proxima-questao': await handleProximaQuestao(); break;
+                case 'sair-quiz': loadDashboard(auth.currentUser); break;
+            }
+        } catch (err) {
+            console.error("Erro ao processar ação:", err);
+            alert("Erro na ação: " + err.message);
         }
     });
-    
-    const comentarioEl = document.getElementById('quiz-comentario');
-    comentarioEl.innerHTML = `
-        <h3 class="text-lg font-bold text-gray-900 mb-2">Comentário</h3>
-        <p class="text-gray-700">${questaoAtual.comentario || 'Sem comentário disponível.'}</p>
-    `;
-    comentarioEl.classList.remove('hidden');
-    
-    const botaoConfirmar = document.getElementById('quiz-botao-confirmar');
-    botaoConfirmar.textContent = 'Próxima Questão';
-    botaoConfirmar.dataset.action = 'proxima-questao';
-    botaoConfirmar.className = "bg-gray-900 text-white font-semibold py-2 px-6 rounded hover:bg-gray-800 transition";
+
+    // Gestor de Formulários
+    appContainer.addEventListener('submit', async (e) => {
+        if (e.target.id === 'form-create-question') {
+            e.preventDefault();
+            await handleCreateQuestionSubmit(e.target);
+        }
+        if (e.target.id === 'form-planner-setup') {
+            e.preventDefault();
+            await handleSavePlannerSetup(e.target);
+        }
+        // O log-form é tratado dentro da função de renderização por ser dinâmico, 
+        // mas podemos adicionar aqui se necessário.
+    });
+
+    // Gestor de Anotações (Auto-save)
+    appContainer.addEventListener('input', (e) => {
+        if (e.target.id === 'anotacoes-textarea') {
+            const statusEl = document.getElementById('anotacoes-status');
+            statusEl.textContent = 'A guardar...';
+            if (anotacaoDebounceTimer) clearTimeout(anotacaoDebounceTimer);
+            anotacaoDebounceTimer = setTimeout(async () => {
+                await handleSalvarAnotacao(e.target.dataset.materia, e.target.value);
+                statusEl.textContent = 'Guardado!';
+            }, 1500);
+        }
+    });
 }
 
-async function salvarProgresso(materia, acertou) {
+
+// --- [ PARTE 8: LÓGICA DE QUIZ E SIMULADOS ] ---
+
+async function abrirPlannerGuiado() {
     const user = auth.currentUser;
-    if (!user) return; 
-    // Normaliza o nome da matéria para usar como ID (sem espaços/acentos se possível, mas Firestore aceita)
-    const materiaId = materia || "geral"; 
-    const progressoRef = doc(db, `artifacts/${appId}/users/${user.uid}/progresso`, materiaId);
-    
-    await setDoc(progressoRef, {
-        totalResolvidas: increment(1),
-        totalAcertos: acertou ? increment(1) : increment(0)
-    }, { merge: true });
+    const userDoc = await getDoc(doc(db, `artifacts/${appId}/users`, user.uid));
+    const userData = userDoc.data();
+    if (userData.metaDiaria) {
+        appContent.innerHTML = renderPlanner_TarefaDoDia(userData);
+    } else {
+        appContent.innerHTML = renderPlannerSetupForm();
+    }
 }
 
-async function handleStartSimulado(num, rom) { 
-    appContent.innerHTML = renderLoadingState(); 
-    // Tenta encontrar pela edição exata ou variações (Ex: "XXX", "OAB XXX")
-    const variacoes = [`Exame ${rom}`, rom, num]; 
+async function handleStartStudySession(materia) {
+    appContent.innerHTML = renderLoadingState();
+    try {
+        // Coleção correta: questoes_oab
+        const q = query(collection(db, 'questoes_oab'), where("materia", "==", materia), limit(50));
+        const snapshot = await getDocs(q);
+        
+        if (snapshot.empty) {
+            appContent.innerHTML = `<div class="text-center p-10"><p>Nenhuma questão de "${materia}" encontrada.</p>${getVoltarButtonHtml()}</div>`;
+            return;
+        }
+
+        const questoes = [];
+        snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        
+        // Pega meta do utilizador
+        const userDoc = await getDoc(doc(db, `artifacts/${appId}/users`, auth.currentUser.uid));
+        metaQuestoesDoDia = userDoc.data()?.metaDiaria || 20;
+        
+        iniciarQuiz(questoes, `Estudo: ${materia}`);
+        
+    } catch (error) {
+        console.error(error);
+        appContent.innerHTML = `<p class="text-red-500 text-center mt-10">Erro ao iniciar: ${error.message}</p>${getVoltarButtonHtml()}`;
+    }
+}
+
+async function handleStartSimuladoDropdown() {
+    const select = document.getElementById('select-simulado-edicao');
+    if (!select || !select.value) return alert("Selecione uma edição.");
+    
+    const [num, rom] = select.value.split(',');
+    appContent.innerHTML = renderLoadingState();
+    
+    const variacoes = [`Exame ${rom}`, `OAB ${rom}`, num, rom, `Exame ${num}`];
+    
     try {
         const q = query(collection(db, 'questoes_oab'), where("edicao", "in", variacoes));
         const snapshot = await getDocs(q);
         
-        // (Resto da lógica idêntica ao handleStartStudySession, mas com timer)
-        // ... 
-        // [Código abreviado pois a lógica é repetitiva, o importante é a query acima]
-        
         if (snapshot.empty) {
-             appContent.innerHTML = `<div class="text-center mt-10"><p class="text-gray-500">Simulado não encontrado.</p>${getVoltarButtonHtml()}</div>`;
-             return;
+            appContent.innerHTML = `<div class="text-center p-10"><p>Simulado não encontrado para edição ${rom}.</p>${getVoltarButtonHtml()}</div>`;
+            return;
         }
         
         const questoes = [];
-        snapshot.forEach(d => questoes.push({...d.data(), docId: d.id}));
-        configurarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60);
-
+        snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        
+        iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60); // 5 horas
+        
     } catch (error) {
-        console.error("Erro Simulado:", error);
-        appContent.innerHTML = `<p>Erro: ${error.message}</p>`;
+        appContent.innerHTML = `<p class="text-red-500">Erro: ${error.message}</p>${getVoltarButtonHtml()}`;
     }
 }
 
-// --- [ PARTE 10: FUNÇÕES DE RENDERIZAÇÃO (HTML) - ESTILO MODERNO ] ---
-// (Mantendo o estilo limpo do app.html novo)
+// Nova função para Simulado Assertivo (Baseado em temas)
+async function handleStartSimuladoAssertivo() {
+    appContent.innerHTML = renderLoadingState();
+    try {
+        // Pega uma amostra de questões (limite 100 para não ser pesado)
+        // Idealmente, teríamos uma coleção de estatísticas de temas mais cobrados
+        const q = query(collection(db, 'questoes_oab'), limit(100));
+        const snapshot = await getDocs(q);
+        
+        if (snapshot.empty) {
+             appContent.innerHTML = `<div class="text-center p-10"><p>Banco de questões vazio.</p>${getVoltarButtonHtml()}</div>`;
+             return;
+        }
 
-function getVoltarButtonHtml() {
-    return `<button data-action="student-voltar-menu" class="mt-4 text-blue-600 hover:text-blue-800 font-medium">&larr; Voltar</button>`;
+        const questoes = [];
+        snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        
+        // Embaralha
+        questoes.sort(() => Math.random() - 0.5);
+        const questoesSelecionadas = questoes.slice(0, 80); // Pega 80
+
+        iniciarQuiz(questoesSelecionadas, "Simulado Assertivo", 5 * 60 * 60);
+
+    } catch (error) {
+        appContent.innerHTML = `<p class="text-red-500">Erro: ${error.message}</p>${getVoltarButtonHtml()}`;
+    }
 }
 
-function renderLoadingState() {
+async function handleStartCaderno(colecaoNome, titulo) {
+    appContent.innerHTML = renderLoadingState();
+    try {
+        const ref = collection(db, `artifacts/${appId}/users/${auth.currentUser.uid}/${colecaoNome}`);
+        const snapshot = await getDocs(ref);
+        
+        if (snapshot.empty) {
+            appContent.innerHTML = `<div class="text-center p-10"><p>${titulo} está vazio.</p>${getVoltarButtonHtml()}</div>`;
+            return;
+        }
+        
+        const questoes = [];
+        snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        iniciarQuiz(questoes, titulo);
+        
+    } catch (error) {
+        appContent.innerHTML = `<p class="text-red-500">Erro: ${error.message}</p>${getVoltarButtonHtml()}`;
+    }
+}
+
+// Nova função genérica para limpar cadernos
+async function handleLimparCaderno(colecaoNome) {
+    if (!confirm("Tem a certeza? Isto apagará todas as questões deste caderno.")) return;
+    appContent.innerHTML = renderLoadingState();
+    try {
+        const ref = collection(db, `artifacts/${appId}/users/${auth.currentUser.uid}/${colecaoNome}`);
+        const snapshot = await getDocs(ref);
+        
+        const promises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(promises);
+        
+        alert("Caderno limpo com sucesso.");
+        loadDashboard(auth.currentUser);
+    } catch (e) {
+        console.error(e);
+        alert("Erro ao limpar caderno.");
+        loadDashboard(auth.currentUser);
+    }
+}
+
+function iniciarQuiz(questoes, titulo, tempo = null) {
+    quizQuestoes = questoes;
+    quizIndexAtual = 0;
+    alternativaSelecionada = null;
+    respostaConfirmada = false;
+    quizTitle = titulo;
+    quizReport = { acertos: 0, erros: 0, total: 0 };
+    quizTempoRestante = tempo;
+    
+    renderQuizUI();
+    if (tempo) startCronometro();
+}
+
+async function handleConfirmarResposta() {
+    if (!alternativaSelecionada) return alert("Selecione uma alternativa.");
+    if (respostaConfirmada) return;
+    
+    respostaConfirmada = true;
+    const questao = quizQuestoes[quizIndexAtual];
+    const correta = questao.correta.toLowerCase();
+    const selecionada = alternativaSelecionada.toLowerCase();
+    const acertou = selecionada === correta;
+    
+    // Atualiza Report
+    quizReport.total++;
+    acertou ? quizReport.acertos++ : quizReport.erros++;
+    
+    // Salva Progresso no Firebase
+    try {
+        const userUid = auth.currentUser.uid;
+        const materiaId = questao.materia || "geral";
+        
+        // 1. Estatísticas Gerais
+        const progRef = doc(db, `artifacts/${appId}/users/${userUid}/progresso`, materiaId);
+        await setDoc(progRef, {
+            totalResolvidas: increment(1),
+            totalAcertos: acertou ? increment(1) : increment(0)
+        }, { merge: true });
+        
+        // 2. Cadernos (Erros/Acertos)
+        const erroRef = doc(db, `artifacts/${appId}/users/${userUid}/questoes_erradas`, questao.id);
+        const acertoRef = doc(db, `artifacts/${appId}/users/${userUid}/questoes_acertadas`, questao.id);
+        
+        if (acertou) {
+            await setDoc(acertoRef, questao);
+            await deleteDoc(erroRef); // Remove dos erros se acertou agora
+        } else {
+            await setDoc(erroRef, questao);
+            await deleteDoc(acertoRef); // Remove dos acertos se errou agora
+        }
+    } catch (e) { console.error("Erro ao salvar resposta:", e); }
+    
+    // Atualiza UI (Feedback Visual)
+    document.querySelectorAll('[data-alternativa]').forEach(el => {
+        const letra = el.dataset.alternativa.toLowerCase();
+        el.className = "p-4 border rounded-lg flex items-start gap-3 transition opacity-60 bg-gray-50 border-gray-200";
+        
+        if (letra === correta) {
+            el.className = "p-4 border rounded-lg flex items-start gap-3 bg-green-100 border-green-500 text-green-900 font-medium";
+        } else if (letra === selecionada && !acertou) {
+            el.className = "p-4 border rounded-lg flex items-start gap-3 bg-red-100 border-red-500 text-red-900";
+        }
+    });
+    
+    // Mostra comentário e botão Próxima
+    document.getElementById('quiz-comentario').classList.remove('hidden');
+    const btn = document.getElementById('quiz-action-btn');
+    btn.textContent = "Próxima Questão";
+    btn.dataset.action = "proxima-questao";
+    btn.className = "bg-gray-900 text-white px-6 py-2 rounded hover:bg-gray-800 transition";
+}
+
+async function handleProximaQuestao() {
+    quizIndexAtual++;
+    const fimPorMeta = quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia;
+    
+    if (quizIndexAtual >= quizQuestoes.length || fimPorMeta) {
+        renderRelatorioFinal();
+    } else {
+        alternativaSelecionada = null;
+        respostaConfirmada = false;
+        renderQuizUI();
+    }
+}
+
+function renderRelatorioFinal() {
+    const textoBotao = "Voltar ao Menu";
+    const textoFinal = `Você completou ${quizReport.total} questões com ${quizReport.acertos} acertos.`;
+    appContent.innerHTML = renderQuizReport(quizReport, textoFinal, textoBotao);
+    
+    // Se for planner, avança ciclo
+    if (quizReturnPath === 'menu') {
+        const user = auth.currentUser;
+        const ref = doc(db, `artifacts/${appId}/users`, user.uid);
+        // Lê o index atual e incrementa
+        getDoc(ref).then(snap => {
+            const idx = snap.data().cicloIndex || 0;
+            const novoIdx = (idx + 1) % CICLO_DE_ESTUDOS.length;
+            updateDoc(ref, { cicloIndex: novoIdx });
+        });
+    }
+}
+
+// --- [ PARTE 9: RENDERS (O HTML DO APP) ] ---
+
+function renderStudentDashboard(userData, stats) {
+    // Garante que 'stats' tem valores padrão se vier undefined
+    const s = stats || { totalResolvidas: 0, taxaGlobal: 0, chartLabels: [], chartData: [] };
+    
     return `
-        <div class="flex flex-col items-center justify-center h-64">
-            <div class="spinner mb-4"></div>
-            <p class="text-gray-500">A carregar...</p>
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">Olá, <span class="text-blue-600">${userData.nome || 'Aluno'}</span>! 👋</h1>
+            <p class="text-gray-500">Vamos continuar a sua preparação para a OAB.</p>
+        </header>
+
+        <!-- Cards de Estatísticas -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p class="text-xs text-gray-500 uppercase font-bold">Questões</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1">${s.totalResolvidas}</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p class="text-xs text-gray-500 uppercase font-bold">Acertos</p>
+                <p class="text-2xl font-bold text-blue-600 mt-1">${s.taxaGlobal}%</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p class="text-xs text-gray-500 uppercase font-bold">Dias Estudados</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1">${userData.totalDiasEstudo || 0}</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p class="text-xs text-gray-500 uppercase font-bold">Sequência</p>
+                <p class="text-2xl font-bold text-orange-500 mt-1">🔥 ${userData.sequenciaDias || 0}</p>
+            </div>
+        </div>
+
+        <!-- Menu Principal -->
+        <div class="grid md:grid-cols-3 gap-6">
+            <div class="md:col-span-2 space-y-4">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Menu de Estudos</h2>
+                
+                <!-- Planner Guiado -->
+                <div data-action="show-guided-planner" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-blue-300 hover:shadow-md transition cursor-pointer flex items-center gap-4 group">
+                    <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl group-hover:scale-110 transition">
+                        <ion-icon name="calendar"></ion-icon>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition">Planner Guiado</h3>
+                        <p class="text-sm text-gray-500">Siga o ciclo automático de matérias.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Caderno de Erros -->
+                    <div data-action="show-caderno-erros" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-red-200 hover:shadow-md transition cursor-pointer">
+                        <div class="text-red-500 text-2xl mb-2"><ion-icon name="alert-circle"></ion-icon></div>
+                        <h3 class="font-bold text-gray-900">Caderno de Erros</h3>
+                        <p class="text-xs text-gray-500">Reveja o que errou.</p>
+                    </div>
+                    <!-- Caderno de Acertos -->
+                    <div data-action="show-caderno-acertos" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-green-200 hover:shadow-md transition cursor-pointer">
+                        <div class="text-green-500 text-2xl mb-2"><ion-icon name="checkmark-circle"></ion-icon></div>
+                        <h3 class="font-bold text-gray-900">Caderno de Acertos</h3>
+                        <p class="text-xs text-gray-500">Reforce o conhecimento.</p>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Simulados -->
+                    <div data-action="show-simulados-menu" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-purple-200 hover:shadow-md transition cursor-pointer">
+                        <div class="text-purple-500 text-2xl mb-2"><ion-icon name="document-text"></ion-icon></div>
+                        <h3 class="font-bold text-gray-900">Simulados</h3>
+                        <p class="text-xs text-gray-500">Provas completas.</p>
+                    </div>
+                    <!-- Estudo Livre -->
+                    <div data-action="show-free-study" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-gray-300 hover:shadow-md transition cursor-pointer">
+                        <div class="text-gray-500 text-2xl mb-2"><ion-icon name="library"></ion-icon></div>
+                        <h3 class="font-bold text-gray-900">Estudo Livre</h3>
+                        <p class="text-xs text-gray-500">Escolha a matéria.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gráfico -->
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">Desempenho por Matéria</h3>
+                <div class="relative h-64 w-full">
+                    ${s.chartLabels.length > 0 ? '<canvas id="performanceChart"></canvas>' : '<p class="text-center text-gray-400 mt-10 text-sm">Responda questões para ver o gráfico.</p>'}
+                </div>
+                <div class="mt-6 pt-4 border-t border-gray-100 text-center">
+                    <button data-action="resetar-desempenho" class="text-xs text-red-400 hover:text-red-600 font-medium">Resetar todo o progresso</button>
+                </div>
+            </div>
         </div>
     `;
 }
 
-function renderQuiz() {
-    const questaoAtual = quizQuestoes[quizIndexAtual];
-    const cardStyle = "bg-white p-6 rounded-xl shadow-sm border border-gray-200";
-    // Estilo da alternativa (agora branco com borda, fica azul ao selecionar)
-    const alternativaStyle = "p-4 border rounded-lg cursor-pointer transition flex items-start gap-3 hover:bg-gray-50 bg-white border-gray-200 text-gray-700";
+function renderQuizUI() {
+    const questao = quizQuestoes[quizIndexAtual];
+    const meta = (quizReturnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
     
-    const metaDoQuiz = (quizReturnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
-    
-    let cronometroHtml = '';
-    if (quizTempoRestante !== null) {
-        // ... (Lógica do cronometro)
+    let timerHtml = '';
+    if (quizTempoRestante) {
+        const h = Math.floor(quizTempoRestante / 3600).toString().padStart(2,'0');
+        const m = Math.floor((quizTempoRestante % 3600) / 60).toString().padStart(2,'0');
+        const s = (quizTempoRestante % 60).toString().padStart(2,'0');
+        timerHtml = `<div class="font-mono bg-gray-900 text-white px-3 py-1 rounded text-sm">${h}:${m}:${s}</div>`;
     }
 
-    // Normaliza as alternativas (pode vir como array ou objeto)
-    let alts = questaoAtual.alternativas;
-    let altHtml = '';
-    
-    // Garante ordem A, B, C, D
-    ['a', 'b', 'c', 'd'].forEach(letra => {
-        // Tenta pegar minúsculo ou maiúsculo
-        const texto = alts[letra] || alts[letra.toUpperCase()];
+    // Normaliza alternativas (a,b,c,d)
+    let altsHtml = '';
+    ['A','B','C','D'].forEach(letra => {
+        // Tenta maiuscula e minuscula
+        const texto = questao.alternativas[letra] || questao.alternativas[letra.toLowerCase()];
         if (texto) {
-            altHtml += `
-                <div class="${alternativaStyle}" data-alternativa="${letra}">
-                    <span class="font-bold uppercase text-gray-500 w-6">${letra})</span>
+            altsHtml += `
+                <div data-alternativa="${letra}" class="p-4 border rounded-lg cursor-pointer transition flex items-start gap-3 bg-white border-gray-200 text-gray-700 hover:bg-gray-50">
+                    <span class="font-bold text-gray-400 w-6">${letra})</span>
                     <span class="flex-1">${texto}</span>
-                </div>`;
+                </div>
+            `;
         }
     });
 
     appContent.innerHTML = `
-        ${cronometroHtml}
         <div class="max-w-3xl mx-auto">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-bold text-gray-800">${quizTitle}</h2>
-                <span class="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                    Questão ${quizIndexAtual + 1} / ${Math.min(quizQuestoes.length, metaDoQuiz)}
-                </span>
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-900">${quizTitle}</h2>
+                    <p class="text-sm text-gray-500">Questão ${quizIndexAtual + 1} de ${meta}</p>
+                </div>
+                ${timerHtml}
             </div>
-            
-            <div class="${cardStyle} mb-6">
+
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
                 <div class="mb-6">
-                    <div class="flex gap-2 mb-3">
-                        <span class="text-xs font-bold uppercase text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                            ${questaoAtual.materia || 'Geral'}
-                        </span>
-                        <span class="text-xs font-bold uppercase text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                            ${questaoAtual.edicao || 'OAB'}
-                        </span>
-                    </div>
-                    <p class="text-gray-900 text-lg leading-relaxed font-medium">${questaoAtual.enunciado}</p>
+                    <span class="inline-block bg-blue-50 text-blue-600 text-xs font-bold px-2 py-1 rounded mb-2 uppercase">${questao.materia}</span>
+                    <p class="text-lg font-medium text-gray-900 leading-relaxed">${questao.enunciado}</p>
                 </div>
                 <div class="space-y-3">
-                    ${altHtml}
+                    ${altsHtml}
                 </div>
             </div>
-            
-            <div id="quiz-comentario" class="bg-green-50 p-6 rounded-xl border border-green-200 mb-6 hidden">
-                <!-- Comentário aqui -->
+
+            <!-- Comentário (Oculto inicialmente) -->
+            <div id="quiz-comentario" class="hidden bg-blue-50 border border-blue-100 p-6 rounded-xl mb-6">
+                <h3 class="font-bold text-blue-900 mb-2">Gabarito & Comentário</h3>
+                <p class="text-blue-800 text-sm leading-relaxed">${questao.comentario || 'Sem comentário disponível.'}</p>
             </div>
-            
+
             <div class="flex justify-between items-center">
                 <button data-action="sair-quiz" class="text-gray-500 hover:text-gray-700 font-medium">Sair</button>
-                <button id="quiz-botao-confirmar" data-action="confirmar-resposta" 
+                <button id="quiz-action-btn" data-action="confirmar-resposta" 
                         class="bg-blue-600 text-white font-semibold py-3 px-8 rounded-lg hover:bg-blue-700 transition shadow-md">
                     Confirmar
                 </button>
@@ -679,28 +712,75 @@ function renderQuiz() {
     `;
 }
 
-// (As funções renderStudentDashboard_Menu, renderPlanner etc. 
-//  são iguais às que você já tinha, mas usando as classes de estilo novas.
-//  Vou omitir para não repetir código enorme, mas elas devem usar 
-//  userData.nome e userData.totalDiasEstudo vindos do loadDashboard)
-
-async function renderStudentDashboard_Menu(userData) {
-    // ... (Lógica de cálculo de progresso igual à anterior) ...
-    
-    // Retorna HTML simplificado para teste
-    const dashboardHtml = `
-        <div class="space-y-6">
-            <div class="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-                <h1 class="text-3xl font-bold text-gray-900 mb-2">Olá, <span class="text-blue-600">${userData.nome}</span>! 👋</h1>
-                <p class="text-gray-500">Vamos continuar a sua preparação hoje?</p>
-            </div>
-            <!-- Aqui entrariam os cartões de menu (Planner, Simulados, etc) -->
-            <!-- Pode usar o HTML que eu forneci no main.js anterior, que já está estilizado -->
+// Renderizadores dos Submenus (Simplificados para caber)
+function renderFreeStudyMenu() {
+    return `
+        ${getVoltarButtonHtml()}
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">Estudo Livre</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            ${TODAS_MATERIAS.map(m => `
+                <button data-action="start-study-session" data-materia="${m}" 
+                        class="p-4 bg-white border border-gray-200 rounded-xl hover:border-blue-400 hover:shadow-md transition capitalize text-left">
+                    ${m.replace('_', ' ')}
+                </button>
+            `).join('')}
         </div>
     `;
-    return { dashboardHtml, chartLabels: [], chartData: [] };
 }
 
-// --- Exportações ---
-// (Não precisamos exportar nada além do que o HTML chama via módulo, 
-// mas o initApp é global)
+function renderSimuladosMenu() {
+    const edicoes = [
+        { num: "38", rom: "XXXVIII" }, { num: "37", rom: "XXXVII" },
+        { num: "36", rom: "XXXVI" }, { num: "35", rom: "XXXV" },
+        { num: "34", rom: "XXXIV" }, { num: "33", rom: "XXXIII" }
+    ];
+    return `
+        ${getVoltarButtonHtml()}
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">Simulados</h2>
+        <div class="bg-white p-6 rounded-xl border border-gray-200 max-w-lg">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Escolha a Edição</label>
+            <select id="select-simulado-edicao" class="w-full p-3 border border-gray-300 rounded-lg mb-4">
+                <option value="">Selecione...</option>
+                ${edicoes.map(e => `<option value="${e.num},${e.rom}">Exame ${e.rom}</option>`).join('')}
+            </select>
+            <button data-action="start-simulado-edicao-dropdown" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700">Iniciar</button>
+            <hr class="my-6">
+            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Assertivo (Temas Quentes)</button>
+        </div>
+    `;
+}
+
+function renderPlanner_TarefaDoDia(userData) {
+    const idx = userData.cicloIndex || 0;
+    const mat = CICLO_DE_ESTUDOS[idx];
+    return `
+        ${getVoltarButtonHtml()}
+        <div class="bg-white p-8 rounded-2xl border-l-8 border-blue-500 shadow-lg max-w-2xl mx-auto mt-10">
+            <h2 class="text-3xl font-bold text-gray-900 mb-2">Sua Meta de Hoje</h2>
+            <p class="text-gray-500 text-lg mb-8">Foco total na aprovação.</p>
+            
+            <div class="flex items-center gap-4 mb-8">
+                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-3xl">
+                    <ion-icon name="target"></ion-icon>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500 uppercase font-bold">Matéria do Ciclo</p>
+                    <p class="text-2xl font-bold text-blue-600 capitalize">${mat.replace('_', ' ')}</p>
+                </div>
+            </div>
+            
+            <button data-action="start-study-session" data-materia="${mat}" 
+                    class="w-full bg-blue-600 text-white py-4 rounded-xl text-xl font-bold hover:bg-blue-700 transition shadow-lg transform hover:-translate-y-1">
+                Iniciar ${userData.metaDiaria} Questões
+            </button>
+        </div>
+    `;
+}
+
+function renderLoadingState() {
+    return `<div class="flex h-full items-center justify-center"><div class="spinner"></div></div>`;
+}
+
+function getVoltarButtonHtml() {
+    return `<button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-800 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar ao Menu</button>`;
+}
