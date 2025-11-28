@@ -1,59 +1,56 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO DEBUG EXTREMO)
+ * ARQUIVO: js/main.js (VERSÃO FINAL - INTEGRADA)
+ * * ESTE ARQUIVO CONTÉM TODA A LÓGICA DO APLICATIVO:
+ * - Dashboard do Aluno
+ * - Sistema de Quiz e Simulados
+ * - Cronômetro
+ * - Painel Administrativo (Criar/Apagar Questões)
+ * - Planner de Estudos
  * ========================================================
  */
 
+// --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
+// Importamos 'auth', 'db' e 'appId' do nosso ficheiro auth.js local
 import { auth, db, appId } from './auth.js'; 
 import { 
     doc, getDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc,
     setDoc, increment, orderBy, limit, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-console.log("📦 main.js: Carregado. DB:", db ? "OK" : "FALHA", "AppID:", appId);
-
-// --- [ 1. SELETORES E DOM ] ---
+// --- [ PARTE 2: SELETORES DO DOM ] ---
+// O 'appContent' é onde tudo será desenhado dinamicamente
 const appContainer = document.getElementById('app-container');
-let appContent = null;
+// Criamos um container interno se não existir, para não apagar o header/nav
+let appContent = appContainer.querySelector('#dynamic-content');
 
-function ensureAppContent() {
-    if (!appContainer) {
-        console.error("❌ main.js: 'app-container' não encontrado.");
-        return null;
+if (!appContent) {
+    // Se o HTML base não tiver a div de conteúdo, usamos o main
+    const main = appContainer.querySelector('main');
+    if (main) {
+        main.innerHTML = '<div id="dynamic-content"></div>';
+        appContent = main.querySelector('#dynamic-content');
+    } else {
+        // Fallback crítico
+        console.error("Erro: Estrutura HTML inválida. 'main' não encontrado.");
     }
-    let main = appContainer.querySelector('main');
-    if (!main) {
-        main = document.createElement('main');
-        main.className = "flex-1 overflow-y-auto p-4 md:p-8";
-        appContainer.appendChild(main);
-    }
-    let contentDiv = main.querySelector('#dynamic-content');
-    if (!contentDiv) {
-        contentDiv = document.createElement('div');
-        contentDiv.id = 'dynamic-content';
-        contentDiv.className = "max-w-7xl mx-auto"; 
-        main.appendChild(contentDiv);
-    }
-    return contentDiv;
 }
 
-// --- [ 2. DADOS E CONSTANTES ] ---
+// --- [ PARTE 3: CONSTANTES E CONFIGURAÇÃO ] ---
 const CICLO_DE_ESTUDOS = [
-    "Ética Profissional", "Direito Constitucional", "Direito Civil", 
-    "Processo Civil", "Direito Penal", "Processo Penal", 
-    "Direito Administrativo", "Direito Tributário", "Direito do Trabalho", 
-    "Processo do Trabalho", "Direito Empresarial"
+    "etica", "constitucional", "civil", "processo_civil", "penal", 
+    "processo_penal", "administrativo", "tributario", "trabalho", 
+    "processo_trabalho", "empresarial", 
+    "etica", "constitucional", "civil", "processo_civil", "penal"
 ];
 
 const TODAS_MATERIAS = [
-    "Ética Profissional", "Direito Civil", "Processo Civil", "Direito Penal", 
-    "Processo Penal", "Direito Constitucional", "Direito Administrativo", 
-    "Direito Tributário", "Direito Empresarial", "Direito do Trabalho", 
-    "Processo do Trabalho", "Direitos Humanos", "Direito do Consumidor", 
-    "Direito Ambiental", "Estatuto da Criança e do Adolescente", "Direito Internacional"
+    "etica", "civil", "processo_civil", "penal", "processo_penal", 
+    "constitucional", "administrativo", "tributario", "empresarial", 
+    "trabalho", "processo_trabalho", "humanos", "consumidor", "ambiental", "eca", "internacional"
 ];
 
-// --- [ 3. ESTADO GLOBAL ] ---
+// --- [ PARTE 4: ESTADO DA APLICAÇÃO ] ---
 let quizQuestoes = [];         
 let quizIndexAtual = 0;        
 let alternativaSelecionada = null; 
@@ -66,86 +63,61 @@ let anotacaoDebounceTimer = null;
 let quizReport = { acertos: 0, erros: 0, total: 0 };
 let quizTempoRestante = null; 
 
-// --- [ 4. INICIALIZAÇÃO ] ---
+// --- [ PARTE 5: INICIALIZAÇÃO GLOBAL ] ---
+// Esta função é chamada automaticamente pelo auth.js quando o login é feito
 window.initApp = async function(uid) {
-    console.log("🚀 main.js: initApp chamado para UID:", uid);
-    
-    appContent = ensureAppContent();
-    if (!appContent) {
-        alert("Erro crítico: DOM não encontrado.");
-        return;
-    }
-
-    setupNavigation(); 
-
-    try {
-        console.log("🔍 Iniciando loadDashboard...");
-        await loadDashboard({ uid: uid });
-        console.log("✅ Dashboard carregado com sucesso.");
-    } catch (error) {
-        console.error("❌ main.js: Erro fatal no dashboard:", error);
-        appContent.innerHTML = renderErrorState("Falha ao carregar painel: " + error.message);
-    }
+    console.log("🚀 A iniciar App para:", uid);
+    setupNavigation(); // Configura os cliques no menu
+    await loadDashboard(auth.currentUser); // Carrega o painel inicial
 };
 
-// --- [ 5. DASHBOARD ] ---
+// --- [ PARTE 6: LÓGICA PRINCIPAL (DASHBOARD) ] ---
 export async function loadDashboard(user) {
+    // Limpeza de estados anteriores
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null; 
     
     appContent.innerHTML = renderLoadingState();
 
     try {
-        console.log("🔍 loadDashboard: Acedendo a users/", user.uid);
         // Caminho simplificado: users/{uid}
         const userDocRef = doc(db, 'users', user.uid);
-        
-        console.log("🔍 loadDashboard: A aguardar getDoc...");
         const userDoc = await getDoc(userDocRef);
-        console.log("🔍 loadDashboard: getDoc retornou. Existe?", userDoc.exists());
         
         if (userDoc.exists()) {
             let userData = userDoc.data();
-            console.log("🔍 loadDashboard: Dados do utilizador:", userData);
             
-            try { 
-                console.log("🔍 loadDashboard: Atualizando sequência...");
-                await atualizarSequenciaDias(userData, userDocRef); 
-            } catch(e) { console.warn("Erro não crítico (sequência):", e); }
+            // Atualização de Sequência (Streak)
+            await atualizarSequenciaDias(userData, userDocRef);
             
+            // Verifica se é Admin ou Aluno
             if (userData.isAdmin === true) {
-                console.log("🔍 loadDashboard: Renderizando Admin");
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
-                console.log("🔍 loadDashboard: Calculando estatísticas...");
+                // Renderiza Dashboard do Aluno
                 const stats = await calcularEstatisticasEstudo(user.uid);
-                console.log("🔍 loadDashboard: Estatísticas calculadas:", stats);
-                
-                console.log("🔍 loadDashboard: Renderizando Aluno...");
                 appContent.innerHTML = renderStudentDashboard(userData, stats);
                 
+                // Inicializa gráfico (se houver dados)
                 if (stats.chartLabels.length > 0) {
-                    setTimeout(() => {
-                        try { renderPerformanceChart(stats.chartLabels, stats.chartData); }
-                        catch(e) { console.warn("Erro ao renderizar gráfico:", e); }
-                    }, 500);
+                    setTimeout(() => renderPerformanceChart(stats.chartLabels, stats.chartData), 100);
                 }
             }
         } else {
-            console.warn("⚠️ loadDashboard: Perfil não encontrado.");
-            appContent.innerHTML = `<div class="text-center p-10 text-gray-500">Perfil não encontrado. <button onclick="location.reload()" class="text-blue-600 underline">Recarregar</button>></div>`;
+            appContent.innerHTML = `<div class="text-center p-8 text-gray-500">Perfil não encontrado. Tente recarregar a página.</div>`;
         }
     } catch (error) { 
-        console.error("❌ loadDashboard: Erro capturado:", error);
-        throw error; 
+        console.error("Erro fatal no dashboard:", error);
+        appContent.innerHTML = `<div class="text-center p-8 text-red-500">Erro ao carregar aplicação: ${error.message}</div>`;
     }
 }
 
-// --- [ AUXILIARES DE NEGÓCIO ] ---
+// --- [ AUXILIAR: LÓGICA DE NEGÓCIO ] ---
+
 async function atualizarSequenciaDias(userData, userDocRef) {
     const hojeStr = getFormattedDate(new Date());
+    // Converte Timestamp do Firestore
     let ultimoLoginData = new Date();
-    
     if (userData.ultimoLogin) {
         if (userData.ultimoLogin.toDate) ultimoLoginData = userData.ultimoLogin.toDate();
         else if (userData.ultimoLogin instanceof Date) ultimoLoginData = userData.ultimoLogin;
@@ -160,60 +132,62 @@ async function atualizarSequenciaDias(userData, userDocRef) {
 
         const totalDiasEstudo = (userData.totalDiasEstudo || 0) + 1;
         let sequenciaDias = 1; 
-        if (ultimoLoginStr === ontemStr) sequenciaDias = (userData.sequenciaDias || 0) + 1;
         
-        await updateDoc(userDocRef, { 
-            totalDiasEstudo, 
-            sequenciaDias, 
-            ultimoLogin: Timestamp.now() 
+        if (ultimoLoginStr === ontemStr) {
+            sequenciaDias = (userData.sequenciaDias || 0) + 1;
+        }
+        
+        await updateDoc(userDocRef, {
+            totalDiasEstudo,
+            sequenciaDias,
+            ultimoLogin: Timestamp.now()
         });
     }
 }
 
 async function calcularEstatisticasEstudo(uid) {
-    try {
-        const progressoRef = collection(db, 'users', uid, 'progresso');
-        const snapshot = await getDocs(progressoRef);
-        
-        let totalResolvidas = 0;
-        let totalAcertos = 0;
-        let chartLabels = [];
-        let chartData = [];
+    // Caminho simplificado: users/{uid}/progresso
+    const progressoRef = collection(db, 'users', uid, 'progresso');
+    const snapshot = await getDocs(progressoRef);
+    
+    let totalResolvidas = 0;
+    let totalAcertos = 0;
+    let chartLabels = [];
+    let chartData = [];
 
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const materia = doc.id.replace(/_/g, ' '); 
-            const resolvidas = data.totalResolvidas || 0;
-            const acertos = data.totalAcertos || 0;
-            
-            totalResolvidas += resolvidas;
-            totalAcertos += acertos;
-            
-            if (resolvidas > 0) {
-                const taxa = ((acertos / resolvidas) * 100).toFixed(0);
-                chartLabels.push(materia);
-                chartData.push(taxa);
-            }
-        });
-
-        const taxaGlobal = totalResolvidas > 0 ? ((totalAcertos / totalResolvidas) * 100).toFixed(0) : 0;
+    snapshot.forEach(doc => {
+        const data = doc.data();
+        const materia = doc.id.replace(/_/g, ' '); // Formata nome
+        const resolvidas = data.totalResolvidas || 0;
+        const acertos = data.totalAcertos || 0;
         
-        return { totalResolvidas, totalAcertos, taxaGlobal, chartLabels, chartData };
-    } catch (e) {
-        console.warn("Erro ao calcular estatísticas:", e);
-        return { totalResolvidas: 0, totalAcertos: 0, taxaGlobal: 0, chartLabels: [], chartData: [] };
-    }
+        totalResolvidas += resolvidas;
+        totalAcertos += acertos;
+        
+        if (resolvidas > 0) {
+            const taxa = ((acertos / resolvidas) * 100).toFixed(0);
+            chartLabels.push(materia);
+            chartData.push(taxa);
+        }
+    });
+
+    const taxaGlobal = totalResolvidas > 0 ? ((totalAcertos / totalResolvidas) * 100).toFixed(0) : 0;
+    
+    return { totalResolvidas, totalAcertos, taxaGlobal, chartLabels, chartData };
 }
 
-// --- [ 6. GESTOR DE EVENTOS ] ---
+// --- [ PARTE 7: GESTOR DE EVENTOS (O Controlador) ] ---
+// Captura todos os cliques no container principal
 if (appContainer) {
     appContainer.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-action]');
         const alternativa = e.target.closest('[data-alternativa]');
 
+        // 1. Seleção de Alternativa no Quiz
         if (alternativa && !respostaConfirmada) {
-            if (!btn) { 
+            if (!btn) { // Se não clicou num botão dentro da alternativa
                 alternativaSelecionada = alternativa.dataset.alternativa;
+                // Atualiza UI
                 document.querySelectorAll('[data-alternativa]').forEach(el => {
                     el.className = "p-4 border rounded-lg cursor-pointer transition flex items-start gap-3 bg-white border-gray-200 text-gray-700 hover:bg-gray-50";
                 });
@@ -224,17 +198,17 @@ if (appContainer) {
 
         if (!btn) return;
         const action = btn.dataset.action;
-        console.log("Clicou em ação:", action);
 
+        // 2. Roteamento de Ações
         try {
             switch(action) {
-                // Admin
+                // --- Admin ---
                 case 'show-create-question-form': appContent.innerHTML = renderCreateQuestionForm(); break;
                 case 'show-list-questions': await renderListQuestionsUI(); break;
                 case 'admin-voltar-painel': loadDashboard(auth.currentUser); break;
                 case 'delete-question': await handleDeleteQuestion(btn.dataset.id, btn); break;
 
-                // Menus Aluno
+                // --- Menus de Aluno ---
                 case 'show-guided-planner': await abrirPlannerGuiado(); break;
                 case 'show-free-study': quizReturnPath = 'free-study'; appContent.innerHTML = renderFreeStudyMenu(); break;
                 case 'show-simulados-menu': quizReturnPath = 'simulados'; appContent.innerHTML = renderSimuladosMenu(); break;
@@ -243,32 +217,33 @@ if (appContainer) {
                 case 'show-anotacoes-menu': appContent.innerHTML = renderAnotacoesMenu(); break;
                 case 'student-voltar-menu': loadDashboard(auth.currentUser); break;
                 
-                // Iniciar Ações
+                // --- Ações Específicas ---
                 case 'show-anotacoes-editor': await renderAnotacoesEditor(btn.dataset.materia); break;
                 case 'start-study-session': await handleStartStudySession(btn.dataset.materia); break;
                 
-                // Quizzes
+                // --- Iniciar Quizzes ---
                 case 'start-simulado-edicao-dropdown': await handleStartSimuladoDropdown(); break;
-                case 'start-simulado-assertivo': await handleStartSimuladoAssertivo(); break;
+                case 'start-simulado-assertivo': await handleStartSimuladoAssertivo(); break; // Adicionado
                 case 'start-quiz-erros': await handleStartCaderno('questoes_erradas', 'Caderno de Erros'); break;
                 case 'start-quiz-acertos': await handleStartCaderno('questoes_acertadas', 'Caderno de Acertos'); break;
                 
-                // Reset
+                // --- Reset ---
                 case 'resetar-desempenho': await handleResetarDesempenho(); break;
-                case 'limpar-caderno-erros': await handleLimparCaderno('questoes_erradas'); break;
-                case 'limpar-caderno-acertos': await handleLimparCaderno('questoes_acertadas'); break;
+                case 'limpar-caderno-erros': await handleLimparCaderno('questoes_erradas'); break; // Adicionado
+                case 'limpar-caderno-acertos': await handleLimparCaderno('questoes_acertadas'); break; // Adicionado
                 
-                // Quiz Flow
+                // --- Quiz Flow ---
                 case 'confirmar-resposta': await handleConfirmarResposta(); break;
                 case 'proxima-questao': await handleProximaQuestao(); break;
                 case 'sair-quiz': loadDashboard(auth.currentUser); break;
             }
         } catch (err) {
-            console.error("Erro na ação:", err);
-            alert("Erro ao processar ação: " + err.message);
+            console.error("Erro ao processar ação:", err);
+            alert("Erro na ação: " + err.message);
         }
     });
 
+    // Gestor de Formulários
     appContainer.addEventListener('submit', async (e) => {
         if (e.target.id === 'form-create-question') {
             e.preventDefault();
@@ -280,19 +255,21 @@ if (appContainer) {
         }
     });
 
+    // Gestor de Anotações (Auto-save)
     appContainer.addEventListener('input', (e) => {
         if (e.target.id === 'anotacoes-textarea') {
             const statusEl = document.getElementById('anotacoes-status');
-            if(statusEl) statusEl.textContent = 'A guardar...';
+            statusEl.textContent = 'A guardar...';
             if (anotacaoDebounceTimer) clearTimeout(anotacaoDebounceTimer);
             anotacaoDebounceTimer = setTimeout(async () => {
                 await handleSalvarAnotacao(e.target.dataset.materia, e.target.value);
-                if(statusEl) statusEl.textContent = 'Guardado!';
+                statusEl.textContent = 'Guardado!';
             }, 1500);
         }
     });
 }
 
+// Navegação
 function setupNavigation() {
     const buttons = document.querySelectorAll('.nav-button');
     buttons.forEach(btn => {
@@ -316,10 +293,11 @@ function setupNavigation() {
     });
 }
 
-// --- [ 7. LÓGICA DE QUIZ ] ---
+// --- [ PARTE 8: LÓGICA DE QUIZ E SIMULADOS ] ---
 
 async function abrirPlannerGuiado() {
     const user = auth.currentUser;
+    // Caminho simplificado
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     const userData = userDoc.data();
     if (userData.metaDiaria) {
@@ -334,29 +312,38 @@ async function abrirPlannerGuiado() {
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState();
     try {
+        // Coleção correta: questoes_oab
         const q = query(collection(db, 'questoes_oab'), where("materia", "==", materia), limit(50));
         const snapshot = await getDocs(q);
+        
         if (snapshot.empty) {
-            appContent.innerHTML = `<div class="text-center p-10"><h3 class="text-xl font-bold">Ops!</h3><p class="text-gray-500 mt-2">Nenhuma questão de <strong>"${materia}"</strong> encontrada.</p>${getVoltarButtonHtml()}</div>`;
+            appContent.innerHTML = `<div class="text-center p-10"><p>Nenhuma questão de "${materia}" encontrada.</p>${getVoltarButtonHtml()}</div>`;
             return;
         }
+
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        
+        // Pega meta do utilizador
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         metaQuestoesDoDia = userDoc.data()?.metaDiaria || 20;
+        
         iniciarQuiz(questoes, `Estudo: ${materia}`);
+        
     } catch (error) {
-        appContent.innerHTML = renderErrorState(error.message);
+        console.error(error);
+        appContent.innerHTML = `<p class="text-red-500 text-center mt-10">Erro ao iniciar: ${error.message}</p>${getVoltarButtonHtml()}`;
     }
 }
 
 async function handleStartSimuladoDropdown() {
     const select = document.getElementById('select-simulado-edicao');
     if (!select || !select.value) return alert("Selecione uma edição.");
+    
     const [num, rom] = select.value.split(',');
     appContent.innerHTML = renderLoadingState();
     
-    // Variações de busca
+    // Tenta variações de nome da edição no banco
     const variacoes = [`Exame ${rom}`, `OAB ${rom}`, num, rom, `Exame ${num}`];
     
     try {
@@ -374,26 +361,33 @@ async function handleStartSimuladoDropdown() {
         iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60); 
         
     } catch (error) {
-        appContent.innerHTML = renderErrorState(error.message);
+        appContent.innerHTML = `<p class="text-red-500">Erro: ${error.message}</p>${getVoltarButtonHtml()}`;
     }
 }
 
+// Nova função para Simulado Assertivo (Baseado em temas)
 async function handleStartSimuladoAssertivo() {
     appContent.innerHTML = renderLoadingState();
     try {
         const q = query(collection(db, 'questoes_oab'), limit(100));
         const snapshot = await getDocs(q);
+        
         if (snapshot.empty) {
              appContent.innerHTML = `<div class="text-center p-10"><p>Banco de questões vazio.</p>${getVoltarButtonHtml()}</div>`;
              return;
         }
+
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        
+        // Embaralha e pega 80
         questoes.sort(() => Math.random() - 0.5);
         const questoesSelecionadas = questoes.slice(0, 80);
+
         iniciarQuiz(questoesSelecionadas, "Simulado Assertivo", 5 * 60 * 60);
+
     } catch (error) {
-        appContent.innerHTML = renderErrorState(error.message);
+        appContent.innerHTML = `<p class="text-red-500">Erro: ${error.message}</p>${getVoltarButtonHtml()}`;
     }
 }
 
@@ -402,30 +396,37 @@ async function handleStartCaderno(colecaoNome, titulo) {
     try {
         const ref = collection(db, 'users', auth.currentUser.uid, colecaoNome);
         const snapshot = await getDocs(ref);
+        
         if (snapshot.empty) {
             appContent.innerHTML = `<div class="text-center p-10"><p>${titulo} está vazio.</p>${getVoltarButtonHtml()}</div>`;
             return;
         }
+        
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
         iniciarQuiz(questoes, titulo);
+        
     } catch (error) {
-        appContent.innerHTML = renderErrorState(error.message);
+        appContent.innerHTML = `<p class="text-red-500">Erro: ${error.message}</p>${getVoltarButtonHtml()}`;
     }
 }
 
+// Nova função genérica para limpar cadernos
 async function handleLimparCaderno(colecaoNome) {
-    if (!confirm("Tem a certeza?")) return;
+    if (!confirm("Tem a certeza? Isto apagará todas as questões deste caderno.")) return;
     appContent.innerHTML = renderLoadingState();
     try {
         const ref = collection(db, 'users', auth.currentUser.uid, colecaoNome);
         const snapshot = await getDocs(ref);
+        
         const promises = snapshot.docs.map(doc => deleteDoc(doc.ref));
         await Promise.all(promises);
-        alert("Caderno limpo.");
+        
+        alert("Caderno limpo com sucesso.");
         loadDashboard(auth.currentUser);
     } catch (e) {
-        alert("Erro: " + e.message);
+        console.error(e);
+        alert("Erro ao limpar caderno.");
         loadDashboard(auth.currentUser);
     }
 }
@@ -438,6 +439,7 @@ function iniciarQuiz(questoes, titulo, tempo = null) {
     quizTitle = titulo;
     quizReport = { acertos: 0, erros: 0, total: 0 };
     quizTempoRestante = tempo;
+    
     renderQuizUI();
     if (tempo) startCronometro();
 }
@@ -452,31 +454,36 @@ async function handleConfirmarResposta() {
     const selecionada = String(alternativaSelecionada).toLowerCase();
     const acertou = selecionada === correta;
     
+    // Atualiza Report
     quizReport.total++;
     acertou ? quizReport.acertos++ : quizReport.erros++;
     
+    // Salva Progresso no Firebase
     try {
         const userUid = auth.currentUser.uid;
         const materiaId = questao.materia || "geral";
         
+        // 1. Estatísticas Gerais
         const progRef = doc(db, 'users', userUid, 'progresso', materiaId);
         await setDoc(progRef, {
             totalResolvidas: increment(1),
             totalAcertos: acertou ? increment(1) : increment(0)
         }, { merge: true });
         
+        // 2. Cadernos (Erros/Acertos)
         const erroRef = doc(db, 'users', userUid, 'questoes_erradas', questao.id);
         const acertoRef = doc(db, 'users', userUid, 'questoes_acertadas', questao.id);
         
         if (acertou) {
             await setDoc(acertoRef, questao);
-            await deleteDoc(erroRef);
+            await deleteDoc(erroRef); // Remove dos erros se acertou agora
         } else {
             await setDoc(erroRef, questao);
-            await deleteDoc(acertoRef);
+            await deleteDoc(acertoRef); // Remove dos acertos se errou agora
         }
     } catch (e) { console.error("Erro ao salvar resposta:", e); }
     
+    // Atualiza UI (Feedback Visual)
     document.querySelectorAll('[data-alternativa]').forEach(el => {
         const letra = el.dataset.alternativa.toLowerCase();
         el.className = "p-4 border rounded-lg flex items-start gap-3 transition opacity-60 bg-gray-50 border-gray-200";
@@ -517,8 +524,11 @@ function renderRelatorioFinal() {
     const textoFinal = `Você completou ${quizReport.total} questões com ${quizReport.acertos} acertos.`;
     appContent.innerHTML = renderQuizReport(quizReport, textoFinal, textoBotao);
     
+    // Se for planner, avança ciclo
     if (quizReturnPath === 'menu') {
-        const ref = doc(db, 'users', auth.currentUser.uid);
+        const user = auth.currentUser;
+        const ref = doc(db, 'users', user.uid);
+        // Lê o index atual e incrementa
         getDoc(ref).then(snap => {
             const idx = snap.data().cicloIndex || 0;
             const novoIdx = (idx + 1) % CICLO_DE_ESTUDOS.length;
@@ -527,22 +537,9 @@ function renderRelatorioFinal() {
     }
 }
 
-// --- [ 8. RENDERS (HTML) ] ---
-
-function renderErrorState(msg) {
-    return `
-        <div class="flex flex-col items-center justify-center h-64 text-center">
-            <div class="text-red-500 text-4xl mb-2"><ion-icon name="alert-circle"></ion-icon></div>
-            <h3 class="text-lg font-bold text-gray-800">Ocorreu um erro</h3>
-            <p class="text-gray-500 mb-4">${msg}</p>
-            <button onclick="location.reload()" class="text-blue-600 hover:underline mt-4">Recarregar página</button>
-        </div>
-    `;
-}
+// --- [ PARTE 9: RENDERS (O HTML DO APP) ] ---
 
 function renderStudentDashboard(userData, stats) {
-    const s = stats || { totalResolvidas: 0, taxaGlobal: 0, chartLabels: [], chartData: [] };
-    
     return `
         <header class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900">Olá, <span class="text-blue-600">${userData.nome || 'Aluno'}</span>! 👋</h1>
@@ -553,11 +550,11 @@ function renderStudentDashboard(userData, stats) {
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <p class="text-xs text-gray-500 uppercase font-bold">Questões</p>
-                <p class="text-2xl font-bold text-gray-900 mt-1">${s.totalResolvidas}</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1">${stats.totalResolvidas}</p>
             </div>
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <p class="text-xs text-gray-500 uppercase font-bold">Acertos</p>
-                <p class="text-2xl font-bold text-blue-600 mt-1">${s.taxaGlobal}%</p>
+                <p class="text-2xl font-bold text-blue-600 mt-1">${stats.taxaGlobal}%</p>
             </div>
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <p class="text-xs text-gray-500 uppercase font-bold">Dias Estudados</p>
@@ -590,11 +587,13 @@ function renderStudentDashboard(userData, stats) {
                     <div data-action="show-caderno-erros" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-red-200 hover:shadow-md transition cursor-pointer">
                         <div class="text-red-500 text-2xl mb-2"><ion-icon name="alert-circle"></ion-icon></div>
                         <h3 class="font-bold text-gray-900">Caderno de Erros</h3>
+                        <p class="text-xs text-gray-500">Reveja o que errou.</p>
                     </div>
                     <!-- Caderno de Acertos -->
                     <div data-action="show-caderno-acertos" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-green-200 hover:shadow-md transition cursor-pointer">
                         <div class="text-green-500 text-2xl mb-2"><ion-icon name="checkmark-circle"></ion-icon></div>
                         <h3 class="font-bold text-gray-900">Caderno de Acertos</h3>
+                        <p class="text-xs text-gray-500">Reforce o conhecimento.</p>
                     </div>
                 </div>
                 
@@ -603,17 +602,14 @@ function renderStudentDashboard(userData, stats) {
                     <div data-action="show-simulados-menu" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-purple-200 hover:shadow-md transition cursor-pointer">
                         <div class="text-purple-500 text-2xl mb-2"><ion-icon name="document-text"></ion-icon></div>
                         <h3 class="font-bold text-gray-900">Simulados</h3>
+                        <p class="text-xs text-gray-500">Provas completas.</p>
                     </div>
                     <!-- Estudo Livre -->
                     <div data-action="show-free-study" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-gray-300 hover:shadow-md transition cursor-pointer">
                         <div class="text-gray-500 text-2xl mb-2"><ion-icon name="library"></ion-icon></div>
                         <h3 class="font-bold text-gray-900">Estudo Livre</h3>
+                        <p class="text-xs text-gray-500">Escolha a matéria.</p>
                     </div>
-                </div>
-                
-                <div data-action="show-anotacoes-menu" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-yellow-400 hover:shadow-md transition cursor-pointer flex items-center gap-4">
-                     <div class="text-yellow-500 text-2xl"><ion-icon name="book"></ion-icon></div>
-                     <h3 class="font-bold text-gray-900">Anotações</h3>
                 </div>
             </div>
 
@@ -621,7 +617,7 @@ function renderStudentDashboard(userData, stats) {
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <h3 class="text-lg font-bold text-gray-900 mb-4">Desempenho por Matéria</h3>
                 <div class="relative h-64 w-full">
-                    ${s.chartLabels.length > 0 ? '<canvas id="performanceChart"></canvas>' : '<p class="text-center text-gray-400 mt-10 text-sm">Responda questões para ver o gráfico.</p>'}
+                    ${stats.chartLabels.length > 0 ? '<canvas id="performanceChart"></canvas>' : '<p class="text-center text-gray-400 mt-10 text-sm">Responda questões para ver o gráfico.</p>'}
                 </div>
                 <div class="mt-6 pt-4 border-t border-gray-100 text-center">
                     <button data-action="resetar-desempenho" class="text-xs text-red-400 hover:text-red-600 font-medium">Resetar todo o progresso</button>
