@@ -16,8 +16,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // --- 1. CONFIGURAÇÃO DO FIREBASE ---
-// 🔴 IMPORTANTE: VOCÊ TEM DE COLAR A SUA CHAVE AQUI 🔴
-// Substitua todo o objeto abaixo pela chave que copiou do Console do Firebase
+// 🔴 IMPORTANTE: A CHAVE FOI INSERIDA AQUI 🔴
 const firebaseConfig = {
   apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
   authDomain: "meu-planner-oab.firebaseapp.com",
