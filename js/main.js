@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO FINAL - SIMULADOS CORRIGIDOS)
+ * ARQUIVO: js/main.js (VERSÃO FINAL - DIAGNÓSTICO & FIX)
  * ========================================================
  */
 
@@ -61,16 +61,30 @@ let anotacaoDebounceTimer = null;
 let quizReport = { acertos: 0, erros: 0, total: 0 };
 let quizTempoRestante = null; 
 
-// --- [ 4. INICIALIZAÇÃO ] ---
+// --- [ 4. INICIALIZAÇÃO E DIAGNÓSTICO ] ---
 window.initApp = async function(uid) {
+    console.log("🚀 Iniciando App...", uid);
     appContent = ensureAppContent();
     if (!appContent) return alert("Erro crítico de layout.");
+    
     setupNavigation(); 
+
+    // DIAGNÓSTICO DE CONEXÃO
+    try {
+        console.log("🔍 Testando conexão com 'questoes_oab'...");
+        const testeQ = query(collection(db, 'questoes_oab'), limit(1));
+        await getDocs(testeQ);
+        console.log("✅ Conexão OK!");
+    } catch (e) {
+        console.error("❌ FALHA CRÍTICA DE ACESSO:", e);
+        alert(`ERRO DE ACESSO AO BANCO DE DADOS:\n\n${e.message}\n\nVerifique se as regras do Firestore permitem leitura em 'questoes_oab'.`);
+    }
+
     try {
         await loadDashboard({ uid: uid });
     } catch (error) {
         console.error(error);
-        appContent.innerHTML = renderErrorState("Erro ao iniciar: " + error.message);
+        appContent.innerHTML = renderErrorState("Erro ao iniciar dashboard: " + error.message);
     }
 };
 
@@ -295,17 +309,16 @@ async function handleStartSimuladoDropdown() {
     const [num, rom] = select.value.split(',');
     appContent.innerHTML = renderLoadingState();
     
-    // O campo 'edicao' no Firestore tem formato "Exame IV", "Exame X", etc.
-    // Vamos tentar encontrar exatamente esse formato.
-    const edicaoBuscada = `Exame ${rom}`; 
-    const variacoes = [edicaoBuscada, `OAB ${rom}`, num, rom]; 
-    
+    // Tenta variações de nome da edição no banco
+    const variacoes = [`Exame ${rom}`, `OAB ${rom}`, num, rom, `Exame ${num}`];
+    console.log("Buscando edição:", variacoes);
+
     try {
         const q = query(collection(db, 'questoes_oab'), where("edicao", "in", variacoes));
         const snapshot = await getDocs(q);
         
         if (snapshot.empty) {
-            appContent.innerHTML = `<div class="text-center p-10"><p>Simulado não encontrado para edição <strong>${edicaoBuscada}</strong>.</p>${getVoltarButtonHtml()}</div>`;
+            appContent.innerHTML = `<div class="text-center p-10"><p>Simulado não encontrado para edição <strong>${rom}</strong>.</p><p class="text-sm text-gray-500">Verificamos: ${variacoes.join(', ')}</p>${getVoltarButtonHtml()}</div>`;
             return;
         }
         
@@ -315,6 +328,7 @@ async function handleStartSimuladoDropdown() {
         iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60); 
         
     } catch (error) {
+        console.error(error);
         appContent.innerHTML = renderErrorState(error.message);
     }
 }
@@ -325,7 +339,7 @@ async function handleStartSimuladoAssertivo() {
         const q = query(collection(db, 'questoes_oab'), limit(100));
         const snapshot = await getDocs(q);
         if (snapshot.empty) {
-             appContent.innerHTML = `<div class="text-center p-10"><p>Banco de questões vazio.</p>${getVoltarButtonHtml()}</div>`;
+             appContent.innerHTML = `<div class="text-center p-10"><p>Banco de questões vazio. Verifique se o upload foi feito.</p>${getVoltarButtonHtml()}</div>`;
              return;
         }
         const questoes = [];
@@ -334,6 +348,7 @@ async function handleStartSimuladoAssertivo() {
         const questoesSelecionadas = questoes.slice(0, 80);
         iniciarQuiz(questoesSelecionadas, "Simulado Assertivo", 5 * 60 * 60);
     } catch (error) {
+        console.error(error);
         appContent.innerHTML = renderErrorState(error.message);
     }
 }
@@ -355,7 +370,8 @@ async function handleStartCaderno(colecaoNome, titulo) {
     }
 }
 
-// --- [ 8. FUNÇÕES DE MENU QUE FALTAVAM ] ---
+// --- [ 8. FUNÇÕES DE MENU E RENDERIZAÇÃO ] ---
+// (Estas funções permanecem inalteradas da versão anterior, pois são apenas visuais)
 
 async function renderCadernoErrosMenu() {
     appContent.innerHTML = renderLoadingState();
@@ -369,15 +385,10 @@ async function renderCadernoErrosMenu() {
     appContent.innerHTML = `
         ${getVoltarButtonHtml()}
         <div class="bg-white p-8 rounded-xl shadow border border-gray-200 max-w-lg mx-auto text-center mt-8">
-            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 text-red-600 mb-4 text-3xl">
-                <ion-icon name="alert-circle"></ion-icon>
-            </div>
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 text-red-600 mb-4 text-3xl"><ion-icon name="alert-circle"></ion-icon></div>
             <h2 class="text-2xl font-bold text-gray-900 mb-2">Caderno de Erros</h2>
             <p class="text-gray-500 mb-6">Você tem <strong class="text-gray-900">${numErros}</strong> questões para revisar.</p>
-            ${numErros > 0 ? 
-                `<button data-action="start-quiz-erros" class="w-full bg-red-600 text-white py-3 rounded-lg font-bold hover:bg-red-700 transition mb-3">Iniciar Revisão</button>
-                 <button data-action="limpar-caderno-erros" class="text-sm text-red-500 hover:underline">Limpar Caderno</button>` 
-                : `<p class="text-sm text-gray-400">Nenhum erro registrado. Parabéns!</p>`}
+            ${numErros > 0 ? `<button data-action="start-quiz-erros" class="w-full bg-red-600 text-white py-3 rounded-lg font-bold hover:bg-red-700 transition mb-3">Iniciar Revisão</button><button data-action="limpar-caderno-erros" class="text-sm text-red-500 hover:underline">Limpar Caderno</button>` : `<p class="text-sm text-gray-400">Nenhum erro registrado. Parabéns!</p>`}
         </div>
     `;
 }
@@ -394,15 +405,10 @@ async function renderCadernoAcertosMenu() {
     appContent.innerHTML = `
         ${getVoltarButtonHtml()}
         <div class="bg-white p-8 rounded-xl shadow border border-gray-200 max-w-lg mx-auto text-center mt-8">
-            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 text-green-600 mb-4 text-3xl">
-                <ion-icon name="checkmark-circle"></ion-icon>
-            </div>
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 text-green-600 mb-4 text-3xl"><ion-icon name="checkmark-circle"></ion-icon></div>
             <h2 class="text-2xl font-bold text-gray-900 mb-2">Caderno de Acertos</h2>
             <p class="text-gray-500 mb-6">Você tem <strong class="text-gray-900">${numAcertos}</strong> acertos registrados.</p>
-            ${numAcertos > 0 ? 
-                `<button data-action="start-quiz-acertos" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition mb-3">Refazer Acertos</button>
-                 <button data-action="limpar-caderno-acertos" class="text-sm text-green-600 hover:underline">Limpar Caderno</button>` 
-                : `<p class="text-sm text-gray-400">Continue estudando para preencher este caderno.</p>`}
+            ${numAcertos > 0 ? `<button data-action="start-quiz-acertos" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition mb-3">Refazer Acertos</button><button data-action="limpar-caderno-acertos" class="text-sm text-green-600 hover:underline">Limpar Caderno</button>` : `<p class="text-sm text-gray-400">Continue estudando para preencher este caderno.</p>`}
         </div>
     `;
 }
@@ -412,12 +418,7 @@ function renderAnotacoesMenu() {
         ${getVoltarButtonHtml()}
         <h2 class="text-2xl font-bold text-gray-800 mb-6 mt-4">Caderno de Anotações</h2>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            ${TODAS_MATERIAS.map(m => `
-                <button data-action="show-anotacoes-editor" data-materia="${m}" 
-                        class="p-4 bg-yellow-50 border border-yellow-200 rounded-xl hover:bg-yellow-100 hover:border-yellow-300 transition capitalize text-left text-yellow-800 font-medium">
-                    ${m.replace(/_/g, ' ')}
-                </button>
-            `).join('')}
+            ${TODAS_MATERIAS.map(m => `<button data-action="show-anotacoes-editor" data-materia="${m}" class="p-4 bg-yellow-50 border border-yellow-200 rounded-xl hover:bg-yellow-100 hover:border-yellow-300 transition capitalize text-left text-yellow-800 font-medium">${m.replace(/_/g, ' ')}</button>`).join('')}
         </div>
     `;
 }
@@ -433,22 +434,15 @@ async function renderAnotacoesEditor(materia) {
     appContent.innerHTML = `
         <button data-action="show-anotacoes-menu" class="mb-4 text-blue-600 hover:underline">&larr; Voltar</button>
         <div class="bg-white p-6 rounded-xl shadow border border-gray-200 h-full flex flex-col">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-2xl font-bold text-gray-800">${materia}</h2>
-                <span id="anotacoes-status" class="text-sm text-gray-400 italic"></span>
-            </div>
-            <textarea id="anotacoes-textarea" data-materia="${materia}" 
-                class="flex-1 w-full p-4 bg-gray-50 border border-gray-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                placeholder="Escreva suas anotações aqui...">${conteudo}</textarea>
+            <div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold text-gray-800">${materia}</h2><span id="anotacoes-status" class="text-sm text-gray-400 italic"></span></div>
+            <textarea id="anotacoes-textarea" data-materia="${materia}" class="flex-1 w-full p-4 bg-gray-50 border border-gray-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="Escreva suas anotações aqui...">${conteudo}</textarea>
         </div>
     `;
 }
 
 async function handleSalvarAnotacao(materia, conteudo) {
     try {
-        await setDoc(doc(db, 'users', auth.currentUser.uid, 'anotacoes', materia), {
-            materia, conteudo, updatedAt: Timestamp.now()
-        }, { merge: true });
+        await setDoc(doc(db, 'users', auth.currentUser.uid, 'anotacoes', materia), { materia, conteudo, updatedAt: Timestamp.now() }, { merge: true });
     } catch(e) { console.error("Erro salvar nota:", e); }
 }
 
@@ -462,10 +456,7 @@ async function handleLimparCaderno(colecaoNome) {
         await Promise.all(promises);
         alert("Caderno limpo.");
         loadDashboard(auth.currentUser);
-    } catch (e) {
-        alert("Erro: " + e.message);
-        loadDashboard(auth.currentUser);
-    }
+    } catch (e) { alert("Erro: " + e.message); loadDashboard(auth.currentUser); }
 }
 
 function iniciarQuiz(questoes, titulo, tempo = null) {
@@ -483,7 +474,6 @@ function iniciarQuiz(questoes, titulo, tempo = null) {
 async function handleConfirmarResposta() {
     if (!alternativaSelecionada) return alert("Selecione uma alternativa.");
     if (respostaConfirmada) return;
-    
     respostaConfirmada = true;
     const questao = quizQuestoes[quizIndexAtual];
     const correta = String(questao.correta).toLowerCase();
@@ -496,58 +486,33 @@ async function handleConfirmarResposta() {
     try {
         const userUid = auth.currentUser.uid;
         const materiaId = questao.materia || "geral";
-        
         const progRef = doc(db, 'users', userUid, 'progresso', materiaId);
-        await setDoc(progRef, {
-            totalResolvidas: increment(1),
-            totalAcertos: acertou ? increment(1) : increment(0)
-        }, { merge: true });
+        await setDoc(progRef, { totalResolvidas: increment(1), totalAcertos: acertou ? increment(1) : increment(0) }, { merge: true });
         
         const erroRef = doc(db, 'users', userUid, 'questoes_erradas', questao.id);
         const acertoRef = doc(db, 'users', userUid, 'questoes_acertadas', questao.id);
-        
-        if (acertou) {
-            await setDoc(acertoRef, questao);
-            await deleteDoc(erroRef);
-        } else {
-            await setDoc(erroRef, questao);
-            await deleteDoc(acertoRef);
-        }
+        if (acertou) { await setDoc(acertoRef, questao); await deleteDoc(erroRef); }
+        else { await setDoc(erroRef, questao); await deleteDoc(acertoRef); }
     } catch (e) { console.error("Erro ao salvar resposta:", e); }
     
     document.querySelectorAll('[data-alternativa]').forEach(el => {
         const letra = el.dataset.alternativa.toLowerCase();
         el.className = "p-4 border rounded-lg flex items-start gap-3 transition opacity-60 bg-gray-50 border-gray-200";
-        
-        if (letra === correta) {
-            el.className = "p-4 border rounded-lg flex items-start gap-3 bg-green-100 border-green-500 text-green-900 font-medium";
-        } else if (letra === selecionada && !acertou) {
-            el.className = "p-4 border rounded-lg flex items-start gap-3 bg-red-100 border-red-500 text-red-900";
-        }
+        if (letra === correta) el.className = "p-4 border rounded-lg flex items-start gap-3 bg-green-100 border-green-500 text-green-900 font-medium";
+        else if (letra === selecionada && !acertou) el.className = "p-4 border rounded-lg flex items-start gap-3 bg-red-100 border-red-500 text-red-900";
     });
     
     const comEl = document.getElementById('quiz-comentario');
     if(comEl) comEl.classList.remove('hidden');
-    
     const btn = document.getElementById('quiz-action-btn');
-    if(btn) {
-        btn.textContent = "Próxima Questão";
-        btn.dataset.action = "proxima-questao";
-        btn.className = "bg-gray-900 text-white px-6 py-2 rounded hover:bg-gray-800 transition";
-    }
+    if(btn) { btn.textContent = "Próxima Questão"; btn.dataset.action = "proxima-questao"; btn.className = "bg-gray-900 text-white px-6 py-2 rounded hover:bg-gray-800 transition"; }
 }
 
 async function handleProximaQuestao() {
     quizIndexAtual++;
     const fimPorMeta = quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia;
-    
-    if (quizIndexAtual >= quizQuestoes.length || fimPorMeta) {
-        renderRelatorioFinal();
-    } else {
-        alternativaSelecionada = null;
-        respostaConfirmada = false;
-        renderQuizUI();
-    }
+    if (quizIndexAtual >= quizQuestoes.length || fimPorMeta) renderRelatorioFinal();
+    else { alternativaSelecionada = null; respostaConfirmada = false; renderQuizUI(); }
 }
 
 function renderRelatorioFinal() {
@@ -564,10 +529,7 @@ function renderRelatorioFinal() {
     }
 }
 
-// --- [ RENDERS COMUNS ] ---
-function renderErrorState(msg) {
-    return `<div class="flex flex-col items-center justify-center h-64 text-center"><div class="text-red-500 text-4xl mb-2"><ion-icon name="alert-circle"></ion-icon></div><p class="text-gray-500">${msg}</p><button onclick="location.reload()" class="text-blue-600 hover:underline mt-4">Recarregar</button></div>`;
-}
+function renderErrorState(msg) { return `<div class="flex flex-col items-center justify-center h-64 text-center"><div class="text-red-500 text-4xl mb-2"><ion-icon name="alert-circle"></ion-icon></div><p class="text-gray-500">${msg}</p><button onclick="location.reload()" class="text-blue-600 hover:underline mt-4">Recarregar</button></div>`; }
 function renderStudentDashboard(userData, stats) {
     const s = stats || { totalResolvidas: 0, taxaGlobal: 0, chartLabels: [], chartData: [] };
     return `
@@ -602,8 +564,7 @@ function renderStudentDashboard(userData, stats) {
                     </div>
                 </div>
                 <div data-action="show-anotacoes-menu" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-yellow-400 hover:shadow-md transition cursor-pointer flex items-center gap-4">
-                     <div class="text-yellow-500 text-2xl"><ion-icon name="book"></ion-icon></div>
-                     <h3 class="font-bold text-gray-900">Anotações</h3>
+                     <div class="text-yellow-500 text-2xl"><ion-icon name="book"></ion-icon></div><h3 class="font-bold text-gray-900">Anotações</h3>
                 </div>
             </div>
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -618,15 +579,11 @@ function renderQuizUI() {
     const questao = quizQuestoes[quizIndexAtual];
     const meta = (quizReturnPath === 'menu') ? metaQuestoesDoDia : quizQuestoes.length;
     let timerHtml = quizTempoRestante ? `<div class="font-mono bg-gray-900 text-white px-3 py-1 rounded text-sm">${Math.floor(quizTempoRestante/3600).toString().padStart(2,'0')}:${Math.floor((quizTempoRestante%3600)/60).toString().padStart(2,'0')}</div>` : '';
-    
     let altsHtml = '';
     ['A','B','C','D'].forEach(letra => {
         const texto = questao.alternativas[letra] || questao.alternativas[letra.toLowerCase()];
-        if (texto) {
-            altsHtml += `<div data-alternativa="${letra}" class="p-4 border rounded-lg cursor-pointer transition flex items-start gap-3 bg-white border-gray-200 text-gray-700 hover:bg-gray-50"><span class="font-bold text-gray-400 w-6">${letra})</span><span class="flex-1">${texto}</span></div>`;
-        }
+        if (texto) altsHtml += `<div data-alternativa="${letra}" class="p-4 border rounded-lg cursor-pointer transition flex items-start gap-3 bg-white border-gray-200 text-gray-700 hover:bg-gray-50"><span class="font-bold text-gray-400 w-6">${letra})</span><span class="flex-1">${texto}</span></div>`;
     });
-
     return `
         <div class="max-w-3xl mx-auto">
             <div class="flex justify-between items-center mb-6"><div><h2 class="text-xl font-bold text-gray-900">${quizTitle}</h2><p class="text-sm text-gray-500">Q. ${quizIndexAtual + 1} / ${meta}</p></div>${timerHtml}</div>
