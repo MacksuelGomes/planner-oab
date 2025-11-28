@@ -1,9 +1,3 @@
-/*
- * ========================================================
- * ARQUIVO: js/auth.js (VERSÃO FINAL V3 - DESACOPLADA)
- * ========================================================
- */
-
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { 
     getAuth, 
@@ -21,7 +15,7 @@ import {
     Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// --- 1. CONFIGURAÇÃO DO FIREBASE ---
+// --- 1. CONFIGURAÇÃO ---
 // 🔴 COLE A SUA CHAVE AQUI 🔴
 const firebaseConfig = {
   apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
@@ -86,19 +80,26 @@ function showScreen(name) {
     
     if (name === 'app') {
         if(appContainer) appContainer.classList.remove('hidden');
-        
-        // Tenta iniciar o app principal
-        if (typeof window.initApp === 'function') {
-            window.initApp(currentUser.uid);
+        tentaIniciarApp();
+    }
+}
+
+// Função auxiliar para tentar iniciar o app de forma resiliente
+function tentaIniciarApp(tentativas = 0) {
+    if (typeof window.initApp === 'function') {
+        console.log("🚀 Iniciando App Principal...");
+        window.initApp(currentUser.uid);
+    } else {
+        if (tentativas < 5) {
+            console.warn(`⚠️ initApp não encontrado. Tentativa ${tentativas + 1}...`);
+            setTimeout(() => tentaIniciarApp(tentativas + 1), 500);
         } else {
-            console.warn("⚠️ initApp ainda não carregado. Aguardando...");
-            // Aguarda o main.js carregar (polling simples)
-            const checkInit = setInterval(() => {
-                if (typeof window.initApp === 'function') {
-                    clearInterval(checkInit);
-                    window.initApp(currentUser.uid);
-                }
-            }, 500);
+            console.error("❌ Erro Fatal: main.js não carregou.");
+            alert("Erro ao carregar o aplicativo. Por favor recarregue a página.");
+            // Tenta importar dinamicamente como último recurso
+            import('./main.js').then(() => {
+                if (window.initApp) window.initApp(currentUser.uid);
+            });
         }
     }
 }
@@ -121,8 +122,9 @@ async function checkUserProfile(user) {
         }
     } catch (error) {
         console.error("Erro perfil:", error);
+        // Se der erro, mas o user estiver logado, tenta mostrar o app (fallback)
         if (currentUser) {
-             console.warn("Erro ao ler perfil, mas logado. Forçando entrada.");
+             console.warn("Erro ao ler perfil, forçando entrada.");
              showScreen('app');
         } else {
              alert("Erro de conexão: " + error.message);
