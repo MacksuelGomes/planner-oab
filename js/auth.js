@@ -1,4 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { 
     getAuth, 
     onAuthStateChanged, 
@@ -6,17 +6,18 @@ import {
     signOut,
     sendPasswordResetEmail,
     updatePassword
-} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { 
     getFirestore, 
     doc, 
     setDoc, 
     getDoc,
     Timestamp
-} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // --- 1. CONFIGURAÇÃO DO FIREBASE ---
-// ⚠️ SUBSTITUA ESTE BLOCO PELA SUA CHAVE REAL DO FIREBASE
+// 🔴 IMPORTANTE: VOCÊ TEM DE COLAR A SUA CHAVE AQUI 🔴
+// Substitua todo o objeto abaixo pela chave que copiou do Console do Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
   authDomain: "meu-planner-oab.firebaseapp.com",
@@ -28,21 +29,31 @@ const firebaseConfig = {
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-// --- 2. INICIALIZAÇÃO ---
+// --- 2. INICIALIZAÇÃO SEGURA ---
 let app, auth, db;
 let currentUser = null;
+let isInitialized = false;
 
 try {
+    // Verificação de segurança antes de iniciar
+    if (!firebaseConfig.apiKey) {
+        throw new Error("Chave de API não encontrada. Edite o ficheiro js/auth.js e cole a sua configuração.");
+    }
+
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
-    console.log("✅ Firebase Auth inicializado.");
+    isInitialized = true;
+    console.log("✅ Firebase Auth inicializado com sucesso.");
 } catch (e) {
-    console.error("❌ Erro ao inicializar Firebase:", e);
-    alert("Erro de configuração. Verifique a consola.");
+    console.error("❌ ERRO CRÍTICO DO FIREBASE:", e);
+    // Mostra erro visual para o utilizador não ficar "às escuras"
+    setTimeout(() => {
+        alert("Erro de Configuração do Sistema:\n" + e.message);
+    }, 1000);
 }
 
-// --- 3. REFERÊNCIAS DO DOM (Elementos HTML) ---
+// --- 3. REFERÊNCIAS DO DOM ---
 const loadingContainer = document.getElementById('loading-container');
 const authContainer = document.getElementById('auth-container');
 const profileSetupContainer = document.getElementById('profile-setup-container');
@@ -59,32 +70,33 @@ const backToLoginBtn = document.getElementById('back-to-login-btn');
 const logoutButton = document.getElementById('logout-button');
 const authErrorLogin = document.getElementById('auth-error-login');
 
-// --- 4. GESTÃO DE ESTADO (Ouvinte de Login) ---
-onAuthStateChanged(auth, async (user) => {
-    console.log("🔄 Estado de Autenticação alterado:", user ? "Logado" : "Deslogado");
-    
-    if (user) {
-        // Utilizador está logado
-        currentUser = user;
-        await checkUserProfile(user);
-    } else {
-        // Utilizador não está logado
-        currentUser = null;
-        showScreen('auth'); // Mostra tela de login
-    }
-});
-
-// --- 5. FUNÇÕES DE NAVEGAÇÃO ENTRE TELAS ---
-function showScreen(screenName) {
-    console.log("📱 A mostrar tela:", screenName);
-    
-    // Esconde tudo primeiro
+// --- 4. GESTÃO DE ESTADO ---
+// Só ativamos o ouvinte se o Firebase iniciou corretamente
+if (isInitialized && auth) {
+    onAuthStateChanged(auth, async (user) => {
+        console.log("🔄 Estado de Autenticação:", user ? "Logado" : "Deslogado");
+        
+        if (user) {
+            currentUser = user;
+            await checkUserProfile(user);
+        } else {
+            currentUser = null;
+            showScreen('auth');
+        }
+    });
+} else {
+    // Se falhou a inicialização, removemos o loader para permitir ver o erro
     if(loadingContainer) loadingContainer.classList.add('hidden');
-    if(authContainer) authContainer.classList.add('hidden');
-    if(profileSetupContainer) profileSetupContainer.classList.add('hidden');
-    if(appContainer) appContainer.classList.add('hidden');
+}
 
-    // Mostra a tela desejada
+// --- 5. NAVEGAÇÃO ---
+function showScreen(screenName) {
+    // Esconde tudo
+    [loadingContainer, authContainer, profileSetupContainer, appContainer].forEach(el => {
+        if(el) el.classList.add('hidden');
+    });
+
+    // Mostra o desejado
     switch (screenName) {
         case 'loading':
             if(loadingContainer) loadingContainer.classList.remove('hidden');
@@ -97,42 +109,32 @@ function showScreen(screenName) {
             break;
         case 'app':
             if(appContainer) appContainer.classList.remove('hidden');
-            // Inicia a lógica do app principal (se existir)
-            console.log("🔗 Tentando iniciar app principal...");
-            if (window.initApp) {
-                window.initApp(currentUser.uid); 
-            } else {
-                console.error("❌ Função window.initApp não encontrada! O main.js foi carregado?");
-            }
+            if (window.initApp && currentUser) window.initApp(currentUser.uid);
             break;
     }
 }
 
-// --- 6. VERIFICAÇÃO DE PERFIL (Correção do Bug das 5 partes) ---
+// --- 6. PERFIL ---
 async function checkUserProfile(user) {
-    showScreen('loading'); // Mostra a bolinha enquanto verifica
-
-    // CAMINHO CORRIGIDO: /artifacts/{appId}/users/{userId} (4 partes)
+    showScreen('loading');
+    // Caminho: /artifacts/{appId}/users/{userId}
     const userDocRef = doc(db, `artifacts/${appId}/users`, user.uid);
 
     try {
         const docSnap = await getDoc(userDocRef);
 
         if (docSnap.exists() && docSnap.data().isComplete) {
-            // Perfil completo -> Vai para o App
-            console.log("✅ Perfil completo. Acedendo ao App.");
             updateUserDisplay(docSnap.data());
             showScreen('app');
         } else {
-            // Perfil incompleto -> Vai para o Setup
-            console.log("📝 Perfil incompleto ou inexistente. Redirecionando para setup.");
+            console.log("📝 Perfil incompleto. A iniciar setup.");
             prefillProfileForm(user, docSnap.exists() ? docSnap.data() : null);
             showScreen('profile-setup');
         }
     } catch (error) {
-        console.error("❌ Erro ao verificar perfil:", error);
-        alert("Erro ao carregar perfil: " + error.message);
-        // showScreen('auth'); // Comentado para permitir depuração se falhar
+        console.error("❌ Erro ao ler perfil:", error);
+        alert("Erro de conexão com o banco de dados. Verifique as regras do Firestore.");
+        showScreen('auth');
     }
 }
 
@@ -146,7 +148,6 @@ function updateUserDisplay(userData) {
 function prefillProfileForm(user, data) {
     const emailInput = document.getElementById('profile-email');
     if(emailInput) emailInput.value = user.email;
-    
     if (data) {
         if (data.nome) document.getElementById('profile-nome').value = data.nome;
         if (data.telefone) document.getElementById('profile-telefone').value = data.telefone;
@@ -154,14 +155,13 @@ function prefillProfileForm(user, data) {
     }
 }
 
-// --- 7. EVENTOS DE FORMULÁRIO ---
+// --- 7. EVENTOS (LOGIN, ETC) ---
 
-// LOGIN
 if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        console.log("🔑 Tentativa de login...");
-        
+        if (!isInitialized) return alert("Sistema não configurado (Falta chave API).");
+
         const email = document.getElementById('login-email').value;
         const pass = document.getElementById('login-password').value;
         
@@ -169,9 +169,9 @@ if (loginForm) {
         
         try {
             await signInWithEmailAndPassword(auth, email, pass);
-            console.log("✅ Login efetuado com sucesso (aguardando onAuthStateChanged)");
+            // Sucesso -> O onAuthStateChanged trata do resto
         } catch (error) {
-            console.error("❌ Erro no login:", error.code, error.message);
+            console.error("Erro login:", error.code);
             if(authErrorLogin) {
                 authErrorLogin.textContent = "Email ou senha incorretos.";
                 authErrorLogin.classList.remove('hidden');
@@ -180,15 +180,12 @@ if (loginForm) {
     });
 }
 
-// LOGOUT
 if (logoutButton) {
     logoutButton.addEventListener('click', () => {
-        console.log("👋 A sair...");
-        signOut(auth);
+        if(auth) signOut(auth);
     });
 }
 
-// PROFILE SETUP (Salvar Perfil)
 if (profileSetupForm) {
     profileSetupForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -200,91 +197,56 @@ if (profileSetupForm) {
         const nascimento = document.getElementById('profile-nascimento').value;
         const novaSenha = document.getElementById('profile-nova-senha').value;
 
-        if (!nome) {
-            if(errorEl) {
-                errorEl.textContent = "O nome é obrigatório.";
-                errorEl.classList.remove('hidden');
-            }
-            return;
-        }
+        if (!nome) return alert("Preencha o nome.");
 
         try {
-            // 1. Se tiver nova senha, atualiza
             if (novaSenha && novaSenha.length >= 6) {
                 await updatePassword(currentUser, novaSenha);
             }
 
-            // 2. Salva no Firestore (Caminho Corrigido)
             const userDocRef = doc(db, `artifacts/${appId}/users`, currentUser.uid);
             await setDoc(userDocRef, {
-                nome: nome,
-                email: currentUser.email,
-                telefone: telefone,
-                dataNascimento: nascimento,
-                isComplete: true, // Marca como completo
-                updatedAt: Timestamp.now()
+                nome, email: currentUser.email, telefone, dataNascimento: nascimento,
+                isComplete: true, updatedAt: Timestamp.now()
             }, { merge: true });
 
-            console.log("✅ Perfil salvo com sucesso.");
-            // 3. Redireciona
             showScreen('app');
 
         } catch (error) {
-            console.error("❌ Erro ao salvar perfil:", error);
+            console.error("Erro salvar perfil:", error);
             if(errorEl) {
-                errorEl.textContent = "Erro ao salvar: " + error.message;
+                errorEl.textContent = "Erro: " + error.message;
                 errorEl.classList.remove('hidden');
             }
-            
-            if (error.code === 'auth/requires-recent-login') {
-                await signOut(auth);
-            }
+            if (error.code === 'auth/requires-recent-login') await signOut(auth);
         }
     });
 }
 
-// Alternar entre Login e Reset de Senha
-if (showResetBtn) {
-    showResetBtn.addEventListener('click', () => {
-        loginForm.classList.add('hidden');
-        resetForm.classList.remove('hidden');
-        document.getElementById('auth-forms-title').textContent = "Redefinir Senha";
-    });
-}
+// Navegação Login/Reset
+if (showResetBtn) showResetBtn.addEventListener('click', () => {
+    loginForm.classList.add('hidden');
+    resetForm.classList.remove('hidden');
+    document.getElementById('auth-forms-title').textContent = "Redefinir Senha";
+});
 
-if (backToLoginBtn) {
-    backToLoginBtn.addEventListener('click', () => {
-        resetForm.classList.add('hidden');
-        loginForm.classList.remove('hidden');
-        document.getElementById('auth-forms-title').textContent = "Bem-vindo de volta";
-    });
-}
+if (backToLoginBtn) backToLoginBtn.addEventListener('click', () => {
+    resetForm.classList.add('hidden');
+    loginForm.classList.remove('hidden');
+    document.getElementById('auth-forms-title').textContent = "Bem-vindo de volta";
+});
 
-// Lógica de envio de email de reset
 if (resetForm) {
     resetForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const email = document.getElementById('reset-email').value;
-        const successMsg = document.getElementById('auth-success-reset');
-        const errorMsg = document.getElementById('auth-error-reset');
-        
-        if(successMsg) successMsg.classList.add('hidden');
-        if(errorMsg) errorMsg.classList.add('hidden');
-
         try {
             await sendPasswordResetEmail(auth, email);
-            if(successMsg) {
-                successMsg.textContent = "Link enviado! Verifique o seu email.";
-                successMsg.classList.remove('hidden');
-            }
+            alert("Link enviado! Verifique o seu email.");
         } catch (error) {
-            if(errorMsg) {
-                errorMsg.textContent = "Erro ao enviar. Verifique o email.";
-                errorMsg.classList.remove('hidden');
-            }
+            alert("Erro ao enviar email.");
         }
     });
 }
 
-// Exporta variáveis úteis para outros módulos (como main.js)
 export { auth, db, appId };
