@@ -1,3 +1,9 @@
+/*
+ * ========================================================
+ * ARQUIVO: js/auth.js (VERSÃO FINAL RESTAURADA)
+ * ========================================================
+ */
+
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { 
     getAuth, 
@@ -15,7 +21,11 @@ import {
     Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// --- 1. CONFIGURAÇÃO ---
+// IMPORTAÇÃO DIRETA DO MAIN.JS 
+// (Garante que o window.initApp existe antes de tentarmos usá-lo)
+import './main.js';
+
+// --- 1. CONFIGURAÇÃO DO FIREBASE ---
 // 🔴 COLE A SUA CHAVE AQUI 🔴
 const firebaseConfig = {
   apiKey: "AIzaSyBPMeD3N3vIuK6zf0GCdDvON-gQkv_CBQk",
@@ -26,7 +36,6 @@ const firebaseConfig = {
   appId: "1:4187860413:web:b61239f784aaf5ed06f6d4"
 };
 
-// Simplificamos para não usar appId no caminho
 export const appId = 'app'; 
 
 // --- 2. INICIALIZAÇÃO ---
@@ -37,10 +46,10 @@ try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
-    console.log("✅ Auth: Firebase iniciado.");
+    console.log("✅ Auth: Firebase iniciado com sucesso.");
 } catch (e) {
     console.error("Erro Firebase:", e);
-    alert("Erro crítico: " + e.message);
+    alert("Erro crítico de configuração: " + e.message);
 }
 
 // --- 3. DOM ---
@@ -60,7 +69,8 @@ onAuthStateChanged(auth, async (user) => {
     console.log("🔄 Estado Auth:", user ? "Logado" : "Deslogado");
     if (user) {
         currentUser = user;
-        await checkUserProfile(user);
+        // Pequeno delay para garantir que o DOM e main.js estão prontos
+        setTimeout(() => checkUserProfile(user), 100);
     } else {
         currentUser = null;
         showScreen('auth');
@@ -81,7 +91,18 @@ function showScreen(name) {
     
     if (name === 'app') {
         if(appContainer) appContainer.classList.remove('hidden');
-        if (window.initApp) window.initApp(currentUser.uid);
+        
+        // Tenta iniciar a aplicação principal
+        if (window.initApp) {
+            window.initApp(currentUser.uid);
+        } else {
+            console.error("❌ window.initApp não encontrado! Tentando recarregar...");
+            // Fallback de segurança
+            setTimeout(() => {
+                if (window.initApp) window.initApp(currentUser.uid);
+                else alert("Erro: A aplicação não carregou corretamente. Recarregue a página.");
+            }, 1000);
+        }
     }
 }
 
@@ -90,7 +111,6 @@ async function checkUserProfile(user) {
     showScreen('loading');
     
     // CAMINHO SIMPLIFICADO: users/{uid}
-    // Sem "artifacts", sem "appId". Direto na raiz.
     const userDocRef = doc(db, 'users', user.uid);
 
     try {
@@ -106,8 +126,14 @@ async function checkUserProfile(user) {
         }
     } catch (error) {
         console.error("Erro perfil:", error);
-        alert("Erro de banco de dados: " + error.message);
-        showScreen('auth');
+        // Se der erro de permissão ou rede, tenta mostrar o app de qualquer jeito se o utilizador já estiver logado
+        if (currentUser) {
+             console.warn("Erro ao ler perfil, mas user está logado. Forçando entrada.");
+             showScreen('app');
+        } else {
+             alert("Erro de banco de dados: " + error.message);
+             showScreen('auth');
+        }
     }
 }
 
@@ -155,7 +181,6 @@ if (profileSetupForm) {
         const nome = document.getElementById('profile-nome').value;
         
         try {
-            // Salva direto em users/{uid}
             const userDocRef = doc(db, 'users', currentUser.uid);
             await setDoc(userDocRef, {
                 nome, 
@@ -173,13 +198,21 @@ if (profileSetupForm) {
 }
 
 // Botões de alternância
-document.getElementById('show-reset-btn')?.addEventListener('click', () => {
-    loginForm.classList.add('hidden');
-    resetForm.classList.remove('hidden');
-});
-document.getElementById('back-to-login-btn')?.addEventListener('click', () => {
-    resetForm.classList.add('hidden');
-    loginForm.classList.remove('hidden');
-});
+const btnReset = document.getElementById('show-reset-btn');
+const btnBack = document.getElementById('back-to-login-btn');
+
+if (btnReset) {
+    btnReset.addEventListener('click', () => {
+        loginForm.classList.add('hidden');
+        resetForm.classList.remove('hidden');
+    });
+}
+
+if (btnBack) {
+    btnBack.addEventListener('click', () => {
+        resetForm.classList.add('hidden');
+        loginForm.classList.remove('hidden');
+    });
+}
 
 export { auth, db, appId };
