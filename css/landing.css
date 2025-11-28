@@ -1,9 +1,113 @@
-/*
-  Este ficheiro (css/landing.css) foi criado para manter a organização.
-  
-  No futuro, se você precisar de algum estilo muito específico
-  que o Tailwind CSS não consiga fazer facilmente, 
-  você poderá adicionar aqui.
-  
-  Por enquanto, ele fica vazio.
-*/
+/* --- VARIÁVEIS E GLOBAIS --- */
+:root {
+    --primary-color: #2563EB; /* Azul Royal Vibrante */
+    --primary-dark: #1E40AF;  /* Azul Escuro para Hover */
+    --secondary-color: #10B981; /* Verde Esmeralda */
+    --accent-color: #8B5CF6;    /* Roxo Moderno */
+    --dark-bg: #111827;         /* Fundo Quase Preto */
+    --light-bg: #F9FAFB;        /* Fundo Quase Branco */
+    --text-main: #1F2937;       /* Texto Principal */
+    --text-light: #6B7280;      /* Texto Secundário */
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden; /* Evita scroll horizontal indesejado */
+}
+
+/* --- UTILITÁRIOS --- */
+/* Remove o contorno padrão ao clicar, mas mantém acessibilidade via teclado */
+:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* --- COMPONENTES DA LANDING PAGE --- */
+
+/* 1. Links de Navegação (Header) */
+.nav-link {
+    position: relative;
+    font-weight: 500;
+}
+
+.nav-link::after {
+    content: '';
+    position: absolute;
+    width: 0;
+    height: 2px;
+    bottom: -4px;
+    left: 0;
+    background-color: var(--primary-color);
+    transition: width 0.3s ease-in-out;
+}
+
+.nav-link:hover::after {
+    width: 100%;
+}
+
+/* 2. Efeitos de Hover nos Cartões (Metodologia) */
+/* A classe 'group' do Tailwind já faz muito, mas aqui refinamos a sombra e transição */
+#metodologia .group {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+                box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.3s ease;
+}
+
+#metodologia .group:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 
+                0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* 3. Ícones Animados */
+/* Adiciona uma animação suave de 'pulso' nos ícones ao passar o mouse */
+@keyframes pulse-soft {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.group:hover ion-icon {
+    animation: pulse-soft 2s infinite;
+}
+
+/* 4. Seção Hero - Detalhes de Fundo */
+/* O gradiente já está no HTML via Tailwind, mas podemos adicionar uma textura sutil se quiser */
+/* .hero-bg-pattern { ... } (Opcional, mantendo limpo por enquanto) */
+
+/* 5. Seção de Recursos (Fundo Escuro) */
+/* Garante que o texto branco tenha bom contraste e legibilidade */
+#recursos {
+    position: relative;
+}
+
+/* Adiciona um brilho sutil atrás dos ícones grandes no modo escuro */
+#recursos ion-icon[name="bar-chart"],
+#recursos ion-icon[name="list"] {
+    filter: drop-shadow(0 0 15px rgba(255, 255, 255, 0.1));
+}
+
+/* 6. Botões (CTA) */
+/* Refinamento das interações de clique */
+a[href="app.html"]:active {
+    transform: scale(0.98); /* Efeito de 'pressionar' */
+}
+
+/* --- RESPONSIVIDADE E AJUSTES FINAIS --- */
+/* Ajustes finos para telas muito pequenas (iPhone SE, etc) */
+@media (max-width: 380px) {
+    h1 {
+        font-size: 2.5rem !important; /* Reduz título gigante no mobile estreito */
+    }
+    .container {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+}
