@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO DE COMPATIBILIDADE v10.12.2)
+ * ARQUIVO: js/main.js (VERSÃO FINAL - CORRIGIDA v10.12.2)
  * ========================================================
  */
 
@@ -30,10 +30,10 @@ function ensureAppContent() {
     }
 
     // Cria ou limpa o container dinâmico dentro do main
-    // (Usamos um div interno para não apagar classes do main)
     let contentDiv = main.querySelector('#dynamic-content');
     if (!contentDiv) {
-        main.innerHTML = ''; // Limpa conteúdo estático antigo se houver
+        // Limpa conteúdo estático antigo se houver (ex: spinners antigos)
+        // main.innerHTML = ''; 
         contentDiv = document.createElement('div');
         contentDiv.id = 'dynamic-content';
         contentDiv.className = "max-w-7xl mx-auto"; // Centraliza
@@ -76,6 +76,7 @@ window.initApp = async function(uid) {
     appContent = ensureAppContent();
     if (!appContent) {
         console.error("❌ Erro fatal: Não foi possível criar a área de conteúdo.");
+        alert("Erro crítico de layout. Recarregue a página.");
         return;
     }
 
@@ -122,6 +123,8 @@ export async function loadDashboard(user) {
                 }
             }
         } else {
+            // Perfil não encontrado -> Redireciona para criação ou mostra erro
+            console.warn("Perfil não encontrado. Tentar recriar ou logout.");
             appContent.innerHTML = `<div class="text-center p-10 text-gray-500">Perfil não encontrado. <button onclick="location.reload()" class="text-blue-600 underline">Recarregar</button></div>`;
         }
     } catch (error) { 
@@ -243,17 +246,19 @@ if (appContainer) {
                 // Iniciar Ações
                 case 'show-anotacoes-editor': await renderAnotacoesEditor(btn.dataset.materia); break;
                 case 'start-study-session': await handleStartStudySession(btn.dataset.materia); break;
+                
+                // --- Iniciar Quizzes ---
                 case 'start-simulado-edicao-dropdown': await handleStartSimuladoDropdown(); break;
-                case 'start-simulado-assertivo': await handleStartSimuladoAssertivo(); break;
+                case 'start-simulado-assertivo': await handleStartSimuladoAssertivo(); break; 
                 case 'start-quiz-erros': await handleStartCaderno('questoes_erradas', 'Caderno de Erros'); break;
                 case 'start-quiz-acertos': await handleStartCaderno('questoes_acertadas', 'Caderno de Acertos'); break;
                 
-                // Reset
+                // --- Reset ---
                 case 'resetar-desempenho': await handleResetarDesempenho(); break;
                 case 'limpar-caderno-erros': await handleLimparCaderno('questoes_erradas'); break;
                 case 'limpar-caderno-acertos': await handleLimparCaderno('questoes_acertadas'); break;
                 
-                // Quiz
+                // --- Quiz Flow ---
                 case 'confirmar-resposta': await handleConfirmarResposta(); break;
                 case 'proxima-questao': await handleProximaQuestao(); break;
                 case 'sair-quiz': loadDashboard(auth.currentUser); break;
@@ -290,6 +295,39 @@ if (appContainer) {
     });
 }
 
+// --- 1. NAVEGAÇÃO (Abas) ---
+function setupNavigation() {
+    const buttons = document.querySelectorAll('.nav-button');
+    
+    buttons.forEach(btn => {
+        btn.onclick = (e) => { // Usa onclick direto para evitar múltiplos listeners
+            e.preventDefault();
+            
+            // Remove ativo de todos
+            buttons.forEach(b => {
+                b.classList.remove('active', 'border-blue-600', 'text-blue-600');
+                b.classList.add('text-gray-500', 'border-transparent');
+            });
+            
+            // Ativa o clicado
+            btn.classList.add('active', 'border-blue-600', 'text-blue-600');
+            btn.classList.remove('text-gray-500', 'border-transparent');
+
+            // Ação
+            const viewName = btn.dataset.view;
+            if (viewName === 'dashboard') {
+                loadDashboard(auth.currentUser);
+            } else if (viewName === 'ciclo') {
+                // Implementar visualização de ciclo se necessário, ou redirecionar para planner
+                abrirPlannerGuiado();
+            } else if (viewName === 'simulados') {
+                quizReturnPath = 'simulados'; 
+                appContent.innerHTML = renderSimuladosMenu();
+            }
+        };
+    });
+}
+
 // --- [ PARTE 8: LÓGICA ESPECÍFICA DE QUIZ ] ---
 
 async function abrirPlannerGuiado() {
@@ -306,7 +344,7 @@ async function abrirPlannerGuiado() {
 async function handleStartStudySession(materia) {
     appContent.innerHTML = renderLoadingState();
     try {
-        // Coleção de questões
+        // Coleção correta: questoes_oab
         const q = query(collection(db, 'questoes_oab'), where("materia", "==", materia), limit(50));
         const snapshot = await getDocs(q);
         
@@ -326,7 +364,7 @@ async function handleStartStudySession(materia) {
         
     } catch (error) {
         console.error(error);
-        appContent.innerHTML = renderErrorState(error.message);
+        appContent.innerHTML = `<p class="text-red-500 text-center mt-10">Erro ao iniciar: ${error.message}</p>${getVoltarButtonHtml()}`;
     }
 }
 
@@ -345,7 +383,7 @@ async function handleStartSimuladoDropdown() {
         const snapshot = await getDocs(q);
         
         if (snapshot.empty) {
-            appContent.innerHTML = `<div class="text-center p-10"><p>Simulado não encontrado.</p>${getVoltarButtonHtml()}</div>`;
+            appContent.innerHTML = `<div class="text-center p-10"><p>Simulado não encontrado para edição ${rom}.</p>${getVoltarButtonHtml()}</div>`;
             return;
         }
         
@@ -355,7 +393,7 @@ async function handleStartSimuladoDropdown() {
         iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60); 
         
     } catch (error) {
-        appContent.innerHTML = renderErrorState(error.message);
+        appContent.innerHTML = `<p class="text-red-500">Erro: ${error.message}</p>${getVoltarButtonHtml()}`;
     }
 }
 
@@ -384,8 +422,6 @@ async function handleStartSimuladoAssertivo() {
         appContent.innerHTML = renderErrorState(error.message);
     }
 }
-
-// ... (Funções handleStartCaderno, handleLimparCaderno mantêm a mesma lógica, mas usando 'users/{uid}' direto)
 
 async function handleStartCaderno(colecaoNome, titulo) {
     appContent.innerHTML = renderLoadingState();
@@ -744,4 +780,19 @@ function getFormattedDate(date) {
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
     return `${year}-${month}-${day}`;
+}
+
+function renderFreeStudyMenu() {
+    return `
+        ${getVoltarButtonHtml()}
+        <h2 class="text-2xl font-bold text-gray-800 mb-6 mt-4">Estudo Livre</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            ${TODAS_MATERIAS.map(m => `
+                <button data-action="start-study-session" data-materia="${m}" 
+                        class="p-4 bg-white border border-gray-200 rounded-xl hover:border-blue-400 hover:shadow-md transition capitalize text-left">
+                    ${m.replace(/_/g, ' ')}
+                </button>
+            `).join('')}
+        </div>
+    `;
 }
