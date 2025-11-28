@@ -1,132 +1,216 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meu Planner OAB - O Método Reverso para sua Aprovação</title>
+    <title>Meu Planner OAB - A Plataforma de Estudo Reverso</title>
     
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='15' fill='%233B82F6'/><text x='50%' y='50%' dominant-baseline='central' text-anchor='middle' font-size='50' font-family='sans-serif' font-weight='bold' fill='%23FFFFFF'>OAB</text></svg>">
-    
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Inter -->
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    
+    <!-- Ícones (Ionicons) -->
+    <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
+
+    <!-- O seu CSS personalizado -->
     <link rel="stylesheet" href="css/landing.css">
 </head>
-<body class="bg-gray-900 text-white font-sans">
+<body class="bg-gray-50 text-gray-800">
 
-    <nav class="bg-gray-900/80 backdrop-blur-md sticky top-0 z-50 border-b border-gray-700">
-        <div class="max-w-6xl mx-auto px-4">
+    <!-- Header -->
+    <header class="bg-white shadow-sm fixed w-full z-10">
+        <nav class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
-                <a href="#" class="text-2xl font-bold text-blue-400">
-                    Meu Planner OAB
-                </a>
+                <!-- Logo -->
+                <div class="flex-shrink-0 flex items-center">
+                    <ion-icon name="clipboard-outline" class="text-3xl text-blue-600"></ion-icon>
+                    <span class="font-bold text-xl ml-2 text-gray-900">Meu Planner OAB</span>
+                </div>
                 
-                <a href="app.html" 
-                   class="bg-blue-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-blue-700 transition duration-300">
-                   Acessar Conta
-                </a>
-            </div>
-        </div>
-    </nav>
+                <!-- Links de Navegação (Desktop) -->
+                <div class="hidden sm:flex sm:items-center sm:space-x-8">
+                    <a href="#metodologia" class="nav-link text-gray-600 hover:text-blue-600 font-medium transition">A Metodologia</a>
+                    <a href="#funcionalidades" class="nav-link text-gray-600 hover:text-blue-600 font-medium transition">Funcionalidades</a>
+                    <a href="#depoimentos" class="nav-link text-gray-600 hover:text-blue-600 font-medium transition">Depoimentos</a>
+                </div>
 
-    <header class="bg-gray-900">
-        <div class="max-w-5xl mx-auto text-center py-24 px-4">
-            <h1 class="text-5xl md:text-6xl font-extrabold leading-tight mb-6">
-                Passe na OAB com o <span class="text-blue-400">Método de Estudo Reverso</span>
-            </h1>
-            <p class="text-xl text-gray-300 mb-10 max-w-2xl mx-auto">
-                A plataforma definitiva para organizar seus estudos, focar na resolução de questões e garantir sua aprovação na 1ª Fase.
-            </p>
-            
-            <a href="#HOTMART_LINK" 
-               class="bg-blue-600 text-white text-lg font-bold px-10 py-4 rounded-full hover:bg-blue-700 transition duration-300 shadow-lg shadow-blue-500/30">
-               GARANTIR MINHA APROVAÇÃO
-            </a>
-            <p class="text-gray-400 mt-4 text-sm">Acesso vitalício. Compra 100% segura.</p>
-        </div>
+                <!-- Botão de Ação (Desktop) -->
+                <div class="hidden sm:ml-6 sm:flex sm:items-center">
+                    <a href="app.html" class="bg-blue-600 text-white px-5 py-2 rounded-md font-medium hover:bg-blue-700 transition shadow-md">
+                        Acessar Conta
+                    </a>
+                </div>
+            </div>
+        </nav>
     </header>
 
-    <section class="py-24 bg-gray-900">
-        <div class="max-w-6xl mx-auto px-4 space-y-24">
-
-            <h2 class="text-4xl font-bold text-center">
-                Um Ecossistema <span class="text-blue-400">Inteligente</span> para a sua Aprovação
-            </h2>
-
-            <div class="grid md:grid-cols-2 gap-12 items-center">
-                <div class="text-left">
-                    <h3 class="text-3xl font-bold mb-4 text-blue-400">O Fim da Desorganização</h3>
-                    <p class="text-lg text-gray-300 mb-4">
-                        Pare de se preocupar com <strong>o que</strong> estudar. O nosso <strong>Planner Guiado</strong> cria um ciclo de estudos automático para você.
-                    </p>
-                    <p class="text-lg text-gray-300">
-                        Acompanhe seu progresso no <strong>Dashboard com Gamificação</strong>: veja sua taxa de acerto, dias estudados e sua <strong>Sequência de Vitórias (🔥)</strong> para se manter motivado.
-                    </p>
+    <!-- Seção Hero (Principal) -->
+    <main class="pt-16">
+        <section class="hero-section text-center pt-24 pb-32 px-4 bg-gradient-to-b from-white to-blue-50">
+            <div class="max-w-4xl mx-auto">
+                <span class="inline-block py-1 px-3 rounded-full bg-blue-100 text-blue-700 text-sm font-semibold mb-6">
+                    🚀 Preparação de Alta Performance
+                </span>
+                <h1 class="text-4xl md:text-6xl font-extrabold text-gray-900 leading-tight mb-6">
+                    Pare de estudar o que <span class="text-blue-600">você já sabe</span>.
+                </h1>
+                <p class="text-xl text-gray-600 max-w-2xl mx-auto mb-10">
+                    Apresentamos a primeira plataforma para OAB 100% focada em <strong>Estudo Reverso</strong>. Encontre suas fraquezas com diagnósticos precisos, estude apenas o necessário e conquiste a sua carteira vermelha.
+                </p>
+                <div class="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
+                    <a href="app.html" class="bg-blue-600 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:bg-blue-700 transition shadow-lg hover:shadow-xl transform hover:-translate-y-1">
+                        Começar Agora
+                    </a>
+                    <a href="#metodologia" class="bg-white text-blue-600 border border-blue-200 px-8 py-4 rounded-lg text-lg font-semibold hover:bg-blue-50 transition">
+                        Entender o Método
+                    </a>
                 </div>
-                <div class="flex justify-center">
-                    <svg class="w-48 h-48 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
-                    </svg>
-                </div>
-            </div>
-
-            <div class="grid md:grid-cols-2 gap-12 items-center">
-                <div class="flex justify-center md:order-2">
-                    <svg class="w-48 h-48 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                         <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
-                    </svg>
-                </div>
-                <div class="text-left md:order-1 md:text-right">
-                    <h3 class="text-3xl font-bold mb-4 text-red-400">O Verdadeiro Estudo Reverso</h3>
-                    <p class="text-lg text-gray-300 mb-4">
-                        Aprovação é sobre corrigir falhas. O <strong>Caderno de Erros Inteligente</strong> é a nossa funcionalidade principal.
-                    </p>
-                    <p class="text-lg text-gray-300">
-                        A plataforma salva <strong>automaticamente</strong> cada questão que você erra, criando um quiz personalizado para você atacar cirurgicamente as suas fraquezas.
-                    </p>
+                <div class="mt-12 flex justify-center items-center space-x-8 opacity-60 grayscale">
+                    <!-- Logos de confiança (placeholders) -->
+                    <span class="text-sm font-bold">Mais de 1.000 questões</span>
+                    <span class="text-sm font-bold">Ciclo Automático</span>
+                    <span class="text-sm font-bold">Foco na 1ª Fase</span>
                 </div>
             </div>
+        </section>
 
-            <div class="grid md:grid-cols-2 gap-12 items-center">
-                <div class="text-left">
-                    <h3 class="text-3xl font-bold mb-4 text-yellow-400">Um Centro de Estudos Completo</h3>
-                    <p class="text-lg text-gray-300 mb-4">
-                        Vá além das questões. Faça <strong>Simulados</strong> de provas passadas ou focados nos temas mais cobrados.
-                    </p>
-                    <p class="text-lg text-gray-300">
-                        Use o <strong>Caderno de Anotações</strong> para consolidar seu aprendizado. Crie resumos, mnemônicos e seu <strong>'Vade Mecum'</strong> pessoal por matéria, tudo salvo na nuvem.
+        <!-- Seção "A Metodologia" -->
+        <section id="metodologia" class="py-20 bg-white">
+            <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="text-center mb-16">
+                    <h2 class="text-3xl font-extrabold text-gray-900 sm:text-4xl">
+                        O Ciclo de Estudo Reverso
+                    </h2>
+                    <p class="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
+                        Candidatos de alta performance não perdem tempo com teoria inútil. Eles usam as questões como diagnóstico cirúrgico. Veja como funciona:
                     </p>
                 </div>
-                <div class="flex justify-center">
-                    <svg class="w-48 h-48 text-yellow-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18c-2.305 0-4.408.867-6 2.292m0-14.25v14.25" />
-                    </svg>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <!-- Card 1 -->
+                    <div class="bg-gray-50 p-8 rounded-xl border border-gray-100 hover:shadow-lg transition">
+                        <div class="w-14 h-14 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-6 text-2xl">
+                            <ion-icon name="search-outline"></ion-icon>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-900 mb-3">1. Diagnóstico</h3>
+                        <p class="text-gray-600">
+                            Você começa o dia fazendo um bloco de questões. O app não quer saber o que você estudou; ele quer saber o que você *realmente* sabe na prática.
+                        </p>
+                    </div>
+                    
+                    <!-- Card 2 -->
+                    <div class="bg-gray-50 p-8 rounded-xl border border-gray-100 hover:shadow-lg transition">
+                        <div class="w-14 h-14 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6 text-2xl">
+                            <ion-icon name="medkit-outline"></ion-icon>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-900 mb-3">2. Estudo Cirúrgico</h3>
+                        <p class="text-gray-600">
+                            Errou 4 questões? Ótimo. Você não vai ler o PDF inteiro. Você vai direto na plataforma, vê o gabarito comentado e estuda *apenas* o que errou.
+                        </p>
+                    </div>
+
+                    <!-- Card 3 -->
+                    <div class="bg-gray-50 p-8 rounded-xl border border-gray-100 hover:shadow-lg transition">
+                        <div class="w-14 h-14 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mb-6 text-2xl">
+                            <ion-icon name="sync-outline"></ion-icon>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-900 mb-3">3. Ciclo Inteligente</h3>
+                        <p class="text-gray-600">
+                            Ao finalizar, a plataforma avança seu ciclo automaticamente para a próxima matéria. Garantimos que você cubra todo o edital sem ansiedade.
+                        </p>
+                    </div>
                 </div>
             </div>
+        </section>
 
-        </div>
-    </section>
-    <section class="py-24 bg-gray-800 text-center"> <div class="max-w-3xl mx-auto px-4">
-            <h2 class="text-4xl font-bold mb-6">
-                Pronto para começar a sua jornada rumo à aprovação?
-            </h2>
-            <p class="text-xl text-gray-300 mb-10">
-                Não deixe seu futuro para depois. Adquira o Planner OAB e 
-                tenha o ecossistema completo que você precisa para ser aprovado.
-            </p>
-            <a href="#HOTMART_LINK" 
-               class="bg-blue-600 text-white text-lg font-bold px-10 py-4 rounded-full hover:bg-blue-700 transition duration-300 shadow-lg shadow-blue-500/30">
-               QUERO SER APROVADO(A)
+        <!-- Seção "Funcionalidades" -->
+        <section id="funcionalidades" class="py-20 bg-gray-900 text-white">
+            <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-16 items-center">
+                    <div>
+                        <h2 class="text-3xl font-extrabold mb-6">
+                            Uma plataforma completa,<br>sem distrações.
+                        </h2>
+                        <div class="space-y-8">
+                            <div class="flex items-start">
+                                <div class="flex-shrink-0">
+                                    <div class="flex items-center justify-center h-12 w-12 rounded-md bg-blue-600 text-white text-xl">
+                                        <ion-icon name="list-outline"></ion-icon>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <h4 class="text-lg font-bold">Banco de Questões Atualizado</h4>
+                                    <p class="text-gray-400 mt-1">Milhares de questões de exames anteriores, organizadas e prontas para você resolver.</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start">
+                                <div class="flex-shrink-0">
+                                    <div class="flex items-center justify-center h-12 w-12 rounded-md bg-green-600 text-white text-xl">
+                                        <ion-icon name="stats-chart-outline"></ion-icon>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <h4 class="text-lg font-bold">Métricas em Tempo Real</h4>
+                                    <p class="text-gray-400 mt-1">Veja seu percentual de acerto por matéria e saiba exatamente se você já passaria na prova hoje.</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start">
+                                <div class="flex-shrink-0">
+                                    <div class="flex items-center justify-center h-12 w-12 rounded-md bg-purple-600 text-white text-xl">
+                                        <ion-icon name="phone-portrait-outline"></ion-icon>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <h4 class="text-lg font-bold">100% Mobile</h4>
+                                    <p class="text-gray-400 mt-1">Estude no ônibus, na fila do banco ou na cama. O design se adapta perfeitamente ao seu celular.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="relative">
+                        <!-- Mockup simplificado -->
+                        <div class="bg-gray-800 p-4 rounded-2xl shadow-2xl border border-gray-700">
+                            <div class="bg-white rounded-xl overflow-hidden h-96 flex items-center justify-center text-gray-400">
+                                <div class="text-center p-6">
+                                    <ion-icon name="laptop-outline" class="text-6xl mb-4"></ion-icon>
+                                    <p>Interface do Aluno</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- CTA Final -->
+        <section class="py-24 bg-blue-600 text-center px-4">
+            <h2 class="text-3xl font-bold text-white mb-6">Pronto para ser aprovado?</h2>
+            <p class="text-blue-100 text-xl mb-10 max-w-2xl mx-auto">Junte-se a centenas de estudantes que trocaram a passividade pela prática.</p>
+            <a href="app.html" class="bg-white text-blue-600 px-10 py-4 rounded-lg text-lg font-bold hover:bg-gray-100 transition shadow-xl">
+                Acessar Minha Conta
             </a>
-        </div>
-    </section>
+        </section>
+    </main>
 
-    <footer class="border-t border-gray-700 bg-gray-900 py-8">
-        <div class="max-w-6xl mx-auto px-4 text-center text-gray-500">
-            <p>&copy; 2025 Meu Planner OAB. Todos os direitos reservados.</p>
-            <p class="text-sm mt-1">Criado por Ascensão Empreendedora</p>
+    <!-- Footer -->
+    <footer class="bg-gray-50 border-t border-gray-200">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <ion-icon name="clipboard-outline" class="text-2xl text-blue-600"></ion-icon>
+                    <span class="font-bold text-lg ml-2 text-gray-900">Meu Planner OAB</span>
+                </div>
+                <div class="text-gray-500 text-sm">
+                    &copy; 2025 Todos os direitos reservados.
+                </div>
+            </div>
         </div>
     </footer>
 
 </body>
 </html>
-
-
