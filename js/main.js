@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO ROBUSTA v3)
+ * ARQUIVO: js/main.js (VERSÃO DEBUG EXTREMO)
  * ========================================================
  */
 
@@ -10,7 +10,7 @@ import {
     setDoc, increment, orderBy, limit, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-console.log("📦 main.js: Carregado e pronto.");
+console.log("📦 main.js: Carregado. DB:", db ? "OK" : "FALHA", "AppID:", appId);
 
 // --- [ 1. SELETORES E DOM ] ---
 const appContainer = document.getElementById('app-container');
@@ -18,18 +18,15 @@ let appContent = null;
 
 function ensureAppContent() {
     if (!appContainer) {
-        console.error("❌ main.js: 'app-container' não encontrado no DOM.");
+        console.error("❌ main.js: 'app-container' não encontrado.");
         return null;
     }
-    
-    // Limpa conteúdo anterior se necessário, mas tenta preservar a estrutura
     let main = appContainer.querySelector('main');
     if (!main) {
         main = document.createElement('main');
         main.className = "flex-1 overflow-y-auto p-4 md:p-8";
         appContainer.appendChild(main);
     }
-
     let contentDiv = main.querySelector('#dynamic-content');
     if (!contentDiv) {
         contentDiv = document.createElement('div');
@@ -70,22 +67,23 @@ let quizReport = { acertos: 0, erros: 0, total: 0 };
 let quizTempoRestante = null; 
 
 // --- [ 4. INICIALIZAÇÃO ] ---
-// Definimos a função globalmente para ser chamada pelo auth.js
 window.initApp = async function(uid) {
     console.log("🚀 main.js: initApp chamado para UID:", uid);
     
     appContent = ensureAppContent();
     if (!appContent) {
-        alert("Erro crítico: Não foi possível carregar a interface.");
+        alert("Erro crítico: DOM não encontrado.");
         return;
     }
 
     setupNavigation(); 
 
     try {
+        console.log("🔍 Iniciando loadDashboard...");
         await loadDashboard({ uid: uid });
+        console.log("✅ Dashboard carregado com sucesso.");
     } catch (error) {
-        console.error("❌ main.js: Erro no dashboard:", error);
+        console.error("❌ main.js: Erro fatal no dashboard:", error);
         appContent.innerHTML = renderErrorState("Falha ao carregar painel: " + error.message);
     }
 };
@@ -94,26 +92,38 @@ window.initApp = async function(uid) {
 export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval); 
     quizTempoRestante = null; 
+    
     appContent.innerHTML = renderLoadingState();
 
     try {
-        // Caminho simplificado para evitar erros: users/{uid}
+        console.log("🔍 loadDashboard: Acedendo a users/", user.uid);
+        // Caminho simplificado: users/{uid}
         const userDocRef = doc(db, 'users', user.uid);
+        
+        console.log("🔍 loadDashboard: A aguardar getDoc...");
         const userDoc = await getDoc(userDocRef);
+        console.log("🔍 loadDashboard: getDoc retornou. Existe?", userDoc.exists());
         
         if (userDoc.exists()) {
             let userData = userDoc.data();
+            console.log("🔍 loadDashboard: Dados do utilizador:", userData);
             
-            // Tenta atualizar sequência, mas não bloqueia se falhar
-            try { await atualizarSequenciaDias(userData, userDocRef); } catch(e) { console.warn("Erro não crítico (sequência):", e); }
+            try { 
+                console.log("🔍 loadDashboard: Atualizando sequência...");
+                await atualizarSequenciaDias(userData, userDocRef); 
+            } catch(e) { console.warn("Erro não crítico (sequência):", e); }
             
             if (userData.isAdmin === true) {
+                console.log("🔍 loadDashboard: Renderizando Admin");
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
+                console.log("🔍 loadDashboard: Calculando estatísticas...");
                 const stats = await calcularEstatisticasEstudo(user.uid);
+                console.log("🔍 loadDashboard: Estatísticas calculadas:", stats);
+                
+                console.log("🔍 loadDashboard: Renderizando Aluno...");
                 appContent.innerHTML = renderStudentDashboard(userData, stats);
                 
-                // Renderiza gráfico com delay seguro
                 if (stats.chartLabels.length > 0) {
                     setTimeout(() => {
                         try { renderPerformanceChart(stats.chartLabels, stats.chartData); }
@@ -122,9 +132,11 @@ export async function loadDashboard(user) {
                 }
             }
         } else {
-            appContent.innerHTML = `<div class="text-center p-10 text-gray-500">Perfil não encontrado. <button onclick="location.reload()" class="text-blue-600 underline">Recarregar</button></div>`;
+            console.warn("⚠️ loadDashboard: Perfil não encontrado.");
+            appContent.innerHTML = `<div class="text-center p-10 text-gray-500">Perfil não encontrado. <button onclick="location.reload()" class="text-blue-600 underline">Recarregar</button>></div>`;
         }
     } catch (error) { 
+        console.error("❌ loadDashboard: Erro capturado:", error);
         throw error; 
     }
 }
@@ -199,7 +211,6 @@ if (appContainer) {
         const btn = e.target.closest('[data-action]');
         const alternativa = e.target.closest('[data-alternativa]');
 
-        // Seleção de Alternativa
         if (alternativa && !respostaConfirmada) {
             if (!btn) { 
                 alternativaSelecionada = alternativa.dataset.alternativa;
@@ -258,7 +269,6 @@ if (appContainer) {
         }
     });
 
-    // Formulários
     appContainer.addEventListener('submit', async (e) => {
         if (e.target.id === 'form-create-question') {
             e.preventDefault();
@@ -270,7 +280,6 @@ if (appContainer) {
         }
     });
 
-    // Auto-save Anotações
     appContainer.addEventListener('input', (e) => {
         if (e.target.id === 'anotacoes-textarea') {
             const statusEl = document.getElementById('anotacoes-status');
@@ -327,22 +336,16 @@ async function handleStartStudySession(materia) {
     try {
         const q = query(collection(db, 'questoes_oab'), where("materia", "==", materia), limit(50));
         const snapshot = await getDocs(q);
-        
         if (snapshot.empty) {
             appContent.innerHTML = `<div class="text-center p-10"><h3 class="text-xl font-bold">Ops!</h3><p class="text-gray-500 mt-2">Nenhuma questão de <strong>"${materia}"</strong> encontrada.</p>${getVoltarButtonHtml()}</div>`;
             return;
         }
-
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
-        
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         metaQuestoesDoDia = userDoc.data()?.metaDiaria || 20;
-        
         iniciarQuiz(questoes, `Estudo: ${materia}`);
-        
     } catch (error) {
-        console.error(error);
         appContent.innerHTML = renderErrorState(error.message);
     }
 }
@@ -350,7 +353,6 @@ async function handleStartStudySession(materia) {
 async function handleStartSimuladoDropdown() {
     const select = document.getElementById('select-simulado-edicao');
     if (!select || !select.value) return alert("Selecione uma edição.");
-    
     const [num, rom] = select.value.split(',');
     appContent.innerHTML = renderLoadingState();
     
@@ -381,21 +383,15 @@ async function handleStartSimuladoAssertivo() {
     try {
         const q = query(collection(db, 'questoes_oab'), limit(100));
         const snapshot = await getDocs(q);
-        
         if (snapshot.empty) {
              appContent.innerHTML = `<div class="text-center p-10"><p>Banco de questões vazio.</p>${getVoltarButtonHtml()}</div>`;
              return;
         }
-
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
-        
-        // Embaralha
         questoes.sort(() => Math.random() - 0.5);
         const questoesSelecionadas = questoes.slice(0, 80);
-
         iniciarQuiz(questoesSelecionadas, "Simulado Assertivo", 5 * 60 * 60);
-
     } catch (error) {
         appContent.innerHTML = renderErrorState(error.message);
     }
@@ -406,16 +402,13 @@ async function handleStartCaderno(colecaoNome, titulo) {
     try {
         const ref = collection(db, 'users', auth.currentUser.uid, colecaoNome);
         const snapshot = await getDocs(ref);
-        
         if (snapshot.empty) {
             appContent.innerHTML = `<div class="text-center p-10"><p>${titulo} está vazio.</p>${getVoltarButtonHtml()}</div>`;
             return;
         }
-        
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
         iniciarQuiz(questoes, titulo);
-        
     } catch (error) {
         appContent.innerHTML = renderErrorState(error.message);
     }
@@ -445,7 +438,6 @@ function iniciarQuiz(questoes, titulo, tempo = null) {
     quizTitle = titulo;
     quizReport = { acertos: 0, erros: 0, total: 0 };
     quizTempoRestante = tempo;
-    
     renderQuizUI();
     if (tempo) startCronometro();
 }
