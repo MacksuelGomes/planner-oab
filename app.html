@@ -1,52 +1,324 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR" class="h-full bg-gray-50">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meu Planner OAB - Área do Aluno</title>
-
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='15' fill='%233B82F6'/><text x='50%' y='50%' dominant-baseline='central' text-anchor='middle' font-size='50' font-family='sans-serif' font-weight='bold' fill='%23FFFFFF'>OAB</text></svg>">
-
+    <title>App | Meu Planner OAB</title>
+    
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <!-- Font Inter -->
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
     
+    <!-- Ícones (Ionicons) -->
+    <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
+
+    <!-- CSS Personalizado do App -->
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body class="bg-gray-900 text-white">
+<body class="h-full flex flex-col font-sans text-gray-900">
 
-    <div id="loading-screen" class="flex items-center justify-center min-h-screen">
-        <div class="loader"></div> <span class="ml-4 text-gray-400 text-lg">A carregar...</span>
+    <!-- 1. TELA DE CARREGAMENTO (Spinner Inicial) -->
+    <!-- Aparece enquanto verificamos se o utilizador está logado -->
+    <div id="loading-container" class="flex items-center justify-center h-full fixed inset-0 bg-white z-50">
+        <div class="text-center">
+            <div class="spinner mb-4 mx-auto"></div>
+            <p class="text-gray-500 text-sm animate-pulse">A carregar os seus dados...</p>
+        </div>
     </div>
 
-    <div id="auth-screen" class="hidden min-h-screen flex items-center justify-center">
-        </div>
+    <!-- 2. TELA DE AUTENTICAÇÃO (Login / Reset de Senha) -->
+    <div id="auth-container" class="hidden h-full flex items-center justify-center bg-gray-50 p-4">
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
+            
+            <!-- Cabeçalho do Login -->
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-100 text-blue-600 mb-4">
+                    <ion-icon name="log-in-outline" class="text-2xl"></ion-icon>
+                </div>
+                <h2 id="auth-forms-title" class="text-2xl font-bold text-gray-900">Bem-vindo de volta</h2>
+                <p class="text-gray-500 text-sm mt-2">Introduza os seus dados para aceder.</p>
+            </div>
 
-    <div id="app-screen" class="hidden">
-        
-        <nav class="bg-gray-800 shadow-lg">
-            <div class="max-w-7xl mx-auto px-4">
-                <div class="flex justify-between h-16">
-                    <div class="flex items-center">
-                        <span class="text-xl font-bold text-blue-400">Meu Planner OAB</span>
+            <!-- Formulário de Login -->
+            <form id="login-form" class="space-y-6">
+                <div>
+                    <label for="login-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="login-email" required 
+                           class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition outline-none"
+                           placeholder="seu@email.com">
+                </div>
+                
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label for="login-password" class="block text-sm font-medium text-gray-700">Senha</label>
+                        <button type="button" id="show-reset-btn" class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                            Esqueceu-se da senha?
+                        </button>
                     </div>
-                    <div class="flex items-center">
-                        <span id="user-email" class="text-gray-300 mr-4"></span>
-                        <button id="logout-button" class="bg-red-600 px-3 py-1 rounded hover:bg-red-700 transition">
-                            Sair
+                    <input type="password" id="login-password" required 
+                           class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition outline-none"
+                           placeholder="••••••••">
+                </div>
+
+                <button type="submit" 
+                        class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition transform active:scale-95 shadow-lg">
+                    Entrar na Plataforma
+                </button>
+                
+                <p id="auth-error-login" class="text-red-500 text-sm text-center hidden"></p>
+            </form>
+
+            <!-- Formulário de Reset de Senha (Oculto inicialmente) -->
+            <form id="reset-form" class="space-y-6 hidden">
+                <div class="bg-blue-50 text-blue-800 p-4 rounded-lg text-sm mb-4">
+                    Introduza o email da sua compra. Enviaremos um link para redefinir a sua senha.
+                </div>
+                <div>
+                    <label for="reset-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="reset-email" required 
+                           class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition outline-none">
+                </div>
+                <div class="flex gap-3">
+                    <button type="button" id="back-to-login-btn" class="flex-1 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium">
+                        Voltar
+                    </button>
+                    <button type="submit" class="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition shadow-lg">
+                        Enviar Link
+                    </button>
+                </div>
+                <p id="auth-success-reset" class="text-green-600 text-sm text-center hidden"></p>
+                <p id="auth-error-reset" class="text-red-500 text-sm text-center hidden"></p>
+            </form>
+
+            <div class="mt-8 text-center pt-6 border-t border-gray-100">
+                <a href="index.html" class="text-sm text-gray-500 hover:text-gray-900 flex items-center justify-center gap-1">
+                    <ion-icon name="arrow-back-outline"></ion-icon> Voltar ao site principal
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. TELA DE COMPLETAR PERFIL (Primeiro Acesso) -->
+    <div id="profile-setup-container" class="hidden h-full flex items-center justify-center bg-gray-50 p-4">
+        <div class="w-full max-w-lg bg-white rounded-2xl shadow-xl p-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-2">Complete o seu cadastro</h2>
+            <p class="text-gray-500 mb-6">Precisamos de alguns detalhes para personalizar o seu plano de estudos.</p>
+            
+            <form id="profile-setup-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                    <input type="text" id="profile-nome" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="profile-email" readonly class="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+                        <input type="tel" id="profile-telefone" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Data Nasc.</label>
+                        <input type="date" id="profile-nascimento" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
+
+                <div class="border-t border-gray-100 pt-4 mt-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nova Senha (Opcional)</label>
+                    <p class="text-xs text-gray-500 mb-2">Defina uma senha pessoal caso tenha recebido uma temporária.</p>
+                    <input type="password" id="profile-nova-senha" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Mínimo 6 caracteres">
+                </div>
+
+                <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition shadow-md mt-4">
+                    Salvar e Começar 🚀
+                </button>
+                <p id="profile-error" class="text-red-500 text-sm text-center mt-2 hidden"></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- 4. APLICAÇÃO PRINCIPAL (Dashboard) -->
+    <!-- Só visível após login e perfil completo -->
+    <div id="app-container" class="hidden h-full flex flex-col bg-gray-100">
+        
+        <!-- Header do App -->
+        <header class="bg-white shadow-sm z-20">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center h-16">
+                    <div class="flex items-center gap-2">
+                        <div class="bg-blue-600 text-white p-1.5 rounded-lg">
+                            <ion-icon name="clipboard" class="text-xl"></ion-icon>
+                        </div>
+                        <h1 class="text-xl font-bold text-gray-900 hidden sm:block">Meu Planner OAB</h1>
+                    </div>
+                    
+                    <div class="flex items-center gap-4">
+                        <div class="text-right hidden sm:block">
+                            <p id="user-name-display" class="text-sm font-bold text-gray-900">Aluno</p>
+                            <p id="user-email-display" class="text-xs text-gray-500">email@exemplo.com</p>
+                        </div>
+                        <button id="logout-button" class="text-gray-500 hover:text-red-600 transition p-2 rounded-full hover:bg-gray-100" title="Sair">
+                            <ion-icon name="log-out-outline" class="text-2xl"></ion-icon>
                         </button>
                     </div>
                 </div>
             </div>
+        </header>
+
+        <!-- Navegação (Abas) -->
+        <nav class="bg-white border-t border-gray-200 overflow-x-auto">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex space-x-8 h-14">
+                    <button class="nav-button active border-b-2 border-blue-600 text-blue-600" data-view="dashboard">
+                        <ion-icon name="stats-chart-outline" class="mr-2 text-lg"></ion-icon> Dashboard
+                    </button>
+                    <button class="nav-button text-gray-500 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300" data-view="ciclo">
+                        <ion-icon name="sync-outline" class="mr-2 text-lg"></ion-icon> Ciclo de Estudos
+                    </button>
+                    <button class="nav-button text-gray-500 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300" data-view="simulados">
+                        <ion-icon name="create-outline" class="mr-2 text-lg"></ion-icon> Banco de Questões
+                    </button>
+                </div>
+            </div>
         </nav>
 
-        <main id="app-content" class="max-w-7xl mx-auto py-8 px-4">
-            </main>
-        
+        <!-- Área de Conteúdo (Views) -->
+        <main class="flex-1 overflow-y-auto p-4 md:p-8">
+            <div class="max-w-7xl mx-auto">
+
+                <!-- VIEW: DASHBOARD -->
+                <section id="dashboard-view" class="view active space-y-6">
+                    <!-- Cartões de Resumo -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <p class="text-gray-500 text-sm font-medium">Questões Hoje</p>
+                            <div class="flex items-end gap-2 mt-2">
+                                <h3 class="text-3xl font-bold text-gray-900" id="dash-hoje-total">0</h3>
+                                <span class="text-green-600 text-sm mb-1 font-medium">+0%</span>
+                            </div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <p class="text-gray-500 text-sm font-medium">Média de Acertos</p>
+                            <div class="flex items-end gap-2 mt-2">
+                                <h3 class="text-3xl font-bold text-gray-900" id="dash-media-acertos">0%</h3>
+                                <div class="w-full bg-gray-200 rounded-full h-1.5 mb-2 ml-2">
+                                    <div class="bg-blue-600 h-1.5 rounded-full" style="width: 0%" id="dash-bar-acertos"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <p class="text-gray-500 text-sm font-medium">Próxima Matéria</p>
+                            <h3 class="text-xl font-bold text-blue-600 mt-2 truncate" id="dash-proxima-materia">A carregar...</h3>
+                            <button class="text-xs text-gray-400 hover:text-gray-600 mt-1 underline" onclick="document.querySelector('[data-view=ciclo]').click()">Ver ciclo completo</button>
+                        </div>
+                    </div>
+
+                    <!-- Área de Registro Rápido -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                            <ion-icon name="add-circle-outline" class="text-blue-600 text-xl"></ion-icon>
+                            Registar Sessão de Estudo
+                        </h3>
+                        <form id="log-form" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                            <div class="md:col-span-4">
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Matéria</label>
+                                <select id="log-materia" class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                                    <option value="">Carregando matérias...</option>
+                                </select>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Total Feito</label>
+                                <input type="number" id="log-total" placeholder="20" class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Acertos</label>
+                                <input type="number" id="log-acertos" placeholder="15" class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none">
+                            </div>
+                            <div class="md:col-span-2 flex justify-center pb-2">
+                                <span id="log-percent" class="text-xl font-bold text-gray-400">--%</span>
+                            </div>
+                            <div class="md:col-span-2">
+                                <button type="submit" class="w-full bg-gray-900 text-white p-2.5 rounded-lg font-medium hover:bg-black transition">Salvar</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Histórico Recente -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-100">
+                            <h3 class="font-bold text-gray-900">Histórico Recente</h3>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left">
+                                <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3">Data</th>
+                                        <th class="px-6 py-3">Matéria</th>
+                                        <th class="px-6 py-3">Desempenho</th>
+                                        <th class="px-6 py-3 text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="logs-table-body" class="divide-y divide-gray-100">
+                                    <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400">Nenhum registo encontrado.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW: CICLO DE ESTUDOS -->
+                <section id="ciclo-view" class="view hidden">
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                            <h3 class="font-bold text-gray-900">O Seu Ciclo</h3>
+                            <span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">Automatizado</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left">
+                                <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-100">
+                                    <tr>
+                                        <th class="px-6 py-3 w-32">Status</th>
+                                        <th class="px-6 py-3">Matéria</th>
+                                        <th class="px-6 py-3">Grupo</th>
+                                        <th class="px-6 py-3 text-right">Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ciclo-table-body" class="divide-y divide-gray-100">
+                                    <!-- Preenchido via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW: SIMULADOS (Banco de Questões) -->
+                <section id="simulados-view" class="view hidden">
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                        <div class="text-center py-12">
+                            <div class="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                                <ion-icon name="construct"></ion-icon>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-900">Em Construção</h3>
+                            <p class="text-gray-500 mt-2">O banco de questões está a ser integrado. Em breve você poderá gerar simulados personalizados aqui.</p>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
     </div>
 
-
+    <!-- SCRIPTS DA APLICAÇÃO (Modularizados) -->
+    <!-- 1. Configuração e Autenticação -->
     <script type="module" src="js/auth.js"></script>
-    
-    </body>
+    <!-- 2. Lógica Principal (Dashboard e Ciclo) -->
+    <script type="module" src="js/main.js"></script>
+
+</body>
 </html>
