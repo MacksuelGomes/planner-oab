@@ -685,7 +685,7 @@ function renderSimuladosMenu() {
             </select>
             <button data-action="start-simulado-edicao-dropdown" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mb-6">Iniciar Edição</button>
             <hr class="mb-6">
-            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Aleatório (80 Questões)</button>
+            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Assertivo (80 Questões)</button>
         </div>
     `;
 }
