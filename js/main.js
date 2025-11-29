@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO FINAL COM RESET FUNCIONANDO)
+ * ARQUIVO: js/main.js (VERSÃO FINAL + SIMULADOS ATÉ XLV)
  * ========================================================
  */
 
@@ -11,7 +11,7 @@ import {
     setDoc, increment, limit, Timestamp, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-console.log("🚀 main.js: Carregado (Versão Final + Reset).");
+console.log("🚀 main.js: Carregado (Versão Final + Simulados Estendidos).");
 
 // --- [ CONFIGURAÇÃO: MAPA DE VARIAÇÕES ] ---
 const MATERIA_VARIACOES = {
@@ -91,7 +91,6 @@ export async function loadDashboard(user) {
                 const stats = await calcularEstatisticasEstudo(user.uid);
                 appContent.innerHTML = renderStudentDashboard(userData, stats);
                 
-                // Renderiza o gráfico se houver dados
                 if (stats.chartLabels.length > 0) {
                     setTimeout(() => {
                         if (typeof renderPerformanceChart === 'function') {
@@ -191,7 +190,9 @@ function renderPerformanceChart(labels, data) {
 
 // --- [ CONTROLADOR DE EVENTOS ] ---
 document.addEventListener('click', async (e) => {
-    // 1. Seleção Visual
+    const btn = e.target.closest('[data-action]');
+    
+    // Seleção de Alternativa
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         document.querySelectorAll('[data-alternativa]').forEach(el => {
@@ -203,10 +204,7 @@ document.addEventListener('click', async (e) => {
         alternativaSelecionada = alternativaEl.dataset.alternativa;
     }
 
-    // 2. Ações
-    const btn = e.target.closest('[data-action]');
     if (!btn) return;
-
     const action = btn.dataset.action;
     
     try {
@@ -293,23 +291,17 @@ async function handleStartStudySession(materiaKey) {
     appContent.innerHTML = renderLoadingState();
     
     const variacoes = MATERIA_VARIACOES[materiaKey] || [materiaKey];
-    console.log(`🔍 Buscando questões para: ${variacoes.join(' OU ')}`);
-
+    
     try {
         const q = query(
             collection(db, 'questoes_oab'), 
             where("materia", "in", variacoes), 
             limit(50)
         );
-        
         const snapshot = await getDocs(q);
         
         if (snapshot.empty) {
-            appContent.innerHTML = `
-                <div class="text-center p-10">
-                    <p class="text-gray-600 mb-4">Nenhuma questão encontrada para <b>${materiaKey}</b>.</p>
-                    <button data-action="student-voltar-menu" class="mt-4 text-blue-600 font-bold">Voltar</button>
-                </div>`;
+            appContent.innerHTML = `<div class="text-center p-10"><p>Sem questões para <b>${materiaKey}</b>.</p><button data-action="student-voltar-menu" class="text-blue-600">Voltar</button></div>`;
             return;
         }
 
@@ -324,7 +316,6 @@ async function handleStartStudySession(materiaKey) {
         iniciarQuiz(questoes, `Estudo: ${nomeMateria}`);
 
     } catch (error) {
-        console.error(error);
         appContent.innerHTML = `<p class="text-red-500 text-center mt-10">Erro: ${error.message}</p>`;
     }
 }
@@ -350,7 +341,7 @@ async function handleStartSimuladoDropdown() {
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
         iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60); 
     } catch (error) {
-        alert("Erro ao carregar simulado: " + error.message);
+        alert("Erro: " + error.message);
         loadDashboard(auth.currentUser);
     }
 }
@@ -394,42 +385,24 @@ async function handleLimparCaderno(colecaoNome) {
     } catch(e) { console.error(e); }
 }
 
-// --- [ FUNÇÃO DE RESETAR O PROGRESSO GERAL ] ---
+// --- [ RESET DO PROGRESSO ] ---
 async function handleResetarDesempenho() {
-    if(!confirm("⚠️ ATENÇÃO: Isso apagará TODO o seu histórico de questões, gráficos e cadernos.\n\nEssa ação não pode ser desfeita. Deseja continuar?")) return;
-    
+    if(!confirm("⚠️ ATENÇÃO: Isso apagará TODO o seu histórico.\n\nEssa ação não pode ser desfeita. Deseja continuar?")) return;
     appContent.innerHTML = renderLoadingState();
-
     try {
         const uid = auth.currentUser.uid;
-        
-        // 1. Função auxiliar para deletar subcoleção inteira
-        const deleteSubcollection = async (subName) => {
+        const deleteSub = async (subName) => {
             const ref = collection(db, 'users', uid, subName);
             const snapshot = await getDocs(ref);
             const promises = snapshot.docs.map(doc => deleteDoc(doc.ref));
             await Promise.all(promises);
         };
-
-        // 2. Apaga as 3 subcoleções principais
-        await deleteSubcollection('progresso');
-        await deleteSubcollection('questoes_erradas');
-        await deleteSubcollection('questoes_acertadas');
-
-        // 3. Zera contadores no documento principal do usuário (opcional, mantemos dias de estudo)
-        // Se quiser zerar também os dias de estudo, descomente abaixo:
-        /*
-        await updateDoc(doc(db, 'users', uid), {
-            totalDiasEstudo: 0,
-            sequenciaDias: 0
-        });
-        */
-
-        alert("Progresso resetado com sucesso! Vamos começar do zero. 🚀");
+        await deleteSub('progresso');
+        await deleteSub('questoes_erradas');
+        await deleteSub('questoes_acertadas');
+        alert("Progresso resetado!");
         loadDashboard(auth.currentUser);
-
     } catch (error) {
-        console.error("Erro no reset:", error);
         alert("Erro ao resetar: " + error.message);
         loadDashboard(auth.currentUser);
     }
@@ -680,9 +653,41 @@ function renderFreeStudyMenu() {
     return `<div class="max-w-4xl mx-auto"><button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button><h2 class="text-2xl font-bold text-gray-900 mb-6">Escolha uma Matéria</h2><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${botoes}</div></div>`;
 }
 
+// --- [ RENDERIZAÇÃO DOS SIMULADOS (DINÂMICO) ] ---
 function renderSimuladosMenu() {
-    const edicoes = [{ num: "38", rom: "XXXVIII" }, { num: "37", rom: "XXXVII" }, { num: "36", rom: "XXXVI" }, { num: "35", rom: "XXXV" }, { num: "34", rom: "XXXIV" }, { num: "33", rom: "XXXIII" }];
-    return `<button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button><div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 max-w-lg mx-auto mt-8"><h2 class="text-2xl font-bold text-gray-800 mb-6">Simulados</h2><label class="block text-sm font-medium text-gray-700 mb-2">Por Edição</label><select id="select-simulado-edicao" class="w-full p-3 border border-gray-300 rounded-lg mb-4"><option value="">Selecione...</option>${edicoes.map(e => `<option value="${e.num},${e.rom}">Exame ${e.rom}</option>`).join('')}</select><button data-action="start-simulado-edicao-dropdown" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mb-6">Iniciar Edição</button><hr class="mb-6"><button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Aleatório (80 Questões)</button></div>`;
+    // Função auxiliar para converter números em romanos
+    function toRoman(num) {
+        const lookup = {M:1000,CM:900,D:500,CD:400,C:100,XC:90,L:50,XL:40,X:10,IX:9,V:5,IV:4,I:1};
+        let roman = '';
+        for (let i in lookup) {
+            while (num >= lookup[i]) {
+                roman += i;
+                num -= lookup[i];
+            }
+        }
+        return roman;
+    }
+
+    // Gera lista do 45 até o 4
+    let optionsHtml = '<option value="">Selecione...</option>';
+    for (let i = 45; i >= 4; i--) {
+        const rom = toRoman(i);
+        optionsHtml += `<option value="${i},${rom}">Exame ${rom}</option>`;
+    }
+
+    return `
+        <button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button>
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 max-w-lg mx-auto mt-8">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Simulados</h2>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Por Edição</label>
+            <select id="select-simulado-edicao" class="w-full p-3 border border-gray-300 rounded-lg mb-4">
+                ${optionsHtml}
+            </select>
+            <button data-action="start-simulado-edicao-dropdown" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mb-6">Iniciar Edição</button>
+            <hr class="mb-6">
+            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Aleatório (80 Questões)</button>
+        </div>
+    `;
 }
 
 function renderPlanner_TarefaDoDia(userData, cicloIndex) {
