@@ -590,7 +590,7 @@ function renderStudentDashboard(userData, stats) {
     return `
         <header class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900">Olá, <span class="text-blue-600">${userData.nome || 'Aluno'}</span>! 👋</h1>
-            <p class="text-gray-500">Sua preparação para a OAB continua.</p>
+            <p class="text-gray-500">Sua preparação para a OAB contínua.</p>
         </header>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
