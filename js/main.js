@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO FINAL COM GRÁFICOS)
+ * ARQUIVO: js/main.js (VERSÃO FINAL COM RESET FUNCIONANDO)
  * ========================================================
  */
 
@@ -11,9 +11,9 @@ import {
     setDoc, increment, limit, Timestamp, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-console.log("🚀 main.js: Carregado (Versão Completa + Gráficos).");
+console.log("🚀 main.js: Carregado (Versão Final + Reset).");
 
-// --- [ CONFIGURAÇÃO: MAPA DE VARIAÇÕES (CORREÇÃO DO BANCO) ] ---
+// --- [ CONFIGURAÇÃO: MAPA DE VARIAÇÕES ] ---
 const MATERIA_VARIACOES = {
     "etica": ["Ética Profissional", "Etica", "Ética"],
     "constitucional": ["Direito Constitucional", "Constitucional"],
@@ -91,13 +91,11 @@ export async function loadDashboard(user) {
                 const stats = await calcularEstatisticasEstudo(user.uid);
                 appContent.innerHTML = renderStudentDashboard(userData, stats);
                 
-                // Renderiza o gráfico se houver dados e a função estiver disponível
+                // Renderiza o gráfico se houver dados
                 if (stats.chartLabels.length > 0) {
                     setTimeout(() => {
                         if (typeof renderPerformanceChart === 'function') {
                             renderPerformanceChart(stats.chartLabels, stats.chartData);
-                        } else {
-                            console.warn("⚠️ Função de gráfico não encontrada ou Chart.js não carregado.");
                         }
                     }, 500);
                 }
@@ -162,7 +160,6 @@ function renderPerformanceChart(labels, data) {
     const ctx = document.getElementById('performanceChart');
     if (!ctx) return;
 
-    // Se já existir um gráfico, destrói para criar o novo (evita sobreposição)
     if (window.myChart instanceof Chart) {
         window.myChart.destroy();
     }
@@ -174,7 +171,7 @@ function renderPerformanceChart(labels, data) {
             datasets: [{
                 label: 'Taxa de Acerto (%)',
                 data: data,
-                backgroundColor: 'rgba(37, 99, 235, 0.6)', // Azul (Tailwind blue-600)
+                backgroundColor: 'rgba(37, 99, 235, 0.6)', 
                 borderColor: 'rgba(37, 99, 235, 1)',
                 borderWidth: 1,
                 borderRadius: 4
@@ -184,25 +181,10 @@ function renderPerformanceChart(labels, data) {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 100,
-                    grid: { color: '#f3f4f6' }
-                },
-                x: {
-                    grid: { display: false }
-                }
+                y: { beginAtZero: true, max: 100, grid: { color: '#f3f4f6' } },
+                x: { grid: { display: false } }
             },
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return context.raw + '% de Acerto';
-                        }
-                    }
-                }
-            }
+            plugins: { legend: { display: false } }
         }
     });
 }
@@ -411,6 +393,49 @@ async function handleLimparCaderno(colecaoNome) {
         loadDashboard(auth.currentUser);
     } catch(e) { console.error(e); }
 }
+
+// --- [ FUNÇÃO DE RESETAR O PROGRESSO GERAL ] ---
+async function handleResetarDesempenho() {
+    if(!confirm("⚠️ ATENÇÃO: Isso apagará TODO o seu histórico de questões, gráficos e cadernos.\n\nEssa ação não pode ser desfeita. Deseja continuar?")) return;
+    
+    appContent.innerHTML = renderLoadingState();
+
+    try {
+        const uid = auth.currentUser.uid;
+        
+        // 1. Função auxiliar para deletar subcoleção inteira
+        const deleteSubcollection = async (subName) => {
+            const ref = collection(db, 'users', uid, subName);
+            const snapshot = await getDocs(ref);
+            const promises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+            await Promise.all(promises);
+        };
+
+        // 2. Apaga as 3 subcoleções principais
+        await deleteSubcollection('progresso');
+        await deleteSubcollection('questoes_erradas');
+        await deleteSubcollection('questoes_acertadas');
+
+        // 3. Zera contadores no documento principal do usuário (opcional, mantemos dias de estudo)
+        // Se quiser zerar também os dias de estudo, descomente abaixo:
+        /*
+        await updateDoc(doc(db, 'users', uid), {
+            totalDiasEstudo: 0,
+            sequenciaDias: 0
+        });
+        */
+
+        alert("Progresso resetado com sucesso! Vamos começar do zero. 🚀");
+        loadDashboard(auth.currentUser);
+
+    } catch (error) {
+        console.error("Erro no reset:", error);
+        alert("Erro ao resetar: " + error.message);
+        loadDashboard(auth.currentUser);
+    }
+}
+
+// --- [ EXECUÇÃO DO QUIZ ] ---
 
 function iniciarQuiz(questoes, titulo, tempo = null) {
     quizQuestoes = questoes;
@@ -680,11 +705,6 @@ function renderCreateQuestionForm() {
 
 function renderLoadingState() {
     return `<div class="flex items-center justify-center h-full p-20"><div class="spinner"></div></div>`;
-}
-
-async function handleResetarDesempenho() {
-    if(!confirm("Tem certeza? Isso apagará todo o seu progresso.")) return;
-    alert("Função de reset em desenvolvimento.");
 }
 
 function setupNavigation() {
