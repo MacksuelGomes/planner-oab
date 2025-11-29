@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO FINAL + SIMULADOS ATÉ XLV)
+ * ARQUIVO: js/main.js (PLANNER AUTOMÁTICO + META EXATA)
  * ========================================================
  */
 
@@ -11,7 +11,7 @@ import {
     setDoc, increment, limit, Timestamp, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-console.log("🚀 main.js: Carregado (Versão Final + Simulados Estendidos).");
+console.log("🚀 main.js: Carregado (Planner Inteligente).");
 
 // --- [ CONFIGURAÇÃO: MAPA DE VARIAÇÕES ] ---
 const MATERIA_VARIACOES = {
@@ -34,6 +34,7 @@ const MATERIA_VARIACOES = {
     "filosofia": ["Filosofia do Direito", "Filosofia"]
 };
 
+// Ordem do Ciclo de Estudos (Personalizável)
 const CICLO_DE_ESTUDOS = [
     "etica", "constitucional", "civil", "processo_civil", "penal", 
     "processo_penal", "administrativo", "tributario", "trabalho", 
@@ -46,7 +47,7 @@ let quizQuestoes = [];
 let quizIndexAtual = 0;
 let alternativaSelecionada = null;
 let respostaConfirmada = false;
-let metaQuestoesDoDia = 20;
+let metaQuestoesDoDia = 20; // Valor padrão, será sobrescrito pelo perfil
 let quizReturnPath = 'menu';
 let quizTitle = 'Estudo';
 let quizReport = { acertos: 0, erros: 0, total: 0 };
@@ -72,7 +73,7 @@ window.initApp = async function(uid) {
     await loadDashboard({ uid: uid });
 };
 
-// --- [ DASHBOARD & ESTATÍSTICAS ] ---
+// --- [ DASHBOARD ] ---
 export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval);
     appContent.innerHTML = renderLoadingState();
@@ -83,6 +84,10 @@ export async function loadDashboard(user) {
         
         if (userDoc.exists()) {
             const userData = userDoc.data();
+            
+            // Atualiza meta global com a do usuário
+            if (userData.metaDiaria) metaQuestoesDoDia = userData.metaDiaria;
+
             await atualizarSequenciaDias(userData, userDocRef);
 
             if (userData.isAdmin === true) {
@@ -154,14 +159,12 @@ async function calcularEstatisticasEstudo(uid) {
     return { totalResolvidas, totalAcertos, taxaGlobal, chartLabels, chartData };
 }
 
-// --- [ GRÁFICO (Chart.js) ] ---
+// --- [ GRÁFICO ] ---
 function renderPerformanceChart(labels, data) {
     const ctx = document.getElementById('performanceChart');
     if (!ctx) return;
 
-    if (window.myChart instanceof Chart) {
-        window.myChart.destroy();
-    }
+    if (window.myChart instanceof Chart) window.myChart.destroy();
 
     window.myChart = new Chart(ctx, {
         type: 'bar',
@@ -190,8 +193,6 @@ function renderPerformanceChart(labels, data) {
 
 // --- [ CONTROLADOR DE EVENTOS ] ---
 document.addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-action]');
-    
     // Seleção de Alternativa
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
@@ -204,6 +205,7 @@ document.addEventListener('click', async (e) => {
         alternativaSelecionada = alternativaEl.dataset.alternativa;
     }
 
+    const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
     
@@ -213,11 +215,24 @@ document.addEventListener('click', async (e) => {
                 quizReturnPath = 'menu';
                 appContent.innerHTML = renderFreeStudyMenu(); 
                 break;
+            
             case 'start-study-session': 
-                await handleStartStudySession(btn.dataset.materia); 
+                // Se vier do botão do Planner, usa a quantidade definida no atributo data-quantidade
+                // Se vier do Estudo Livre, usa padrão 50
+                const qtd = btn.dataset.quantidade ? parseInt(btn.dataset.quantidade) : 50;
+                
+                // Se vier do Planner, define o caminho de volta para atualizar o ciclo
+                if (btn.dataset.source === 'planner') {
+                    quizReturnPath = 'planner';
+                } else {
+                    quizReturnPath = 'menu';
+                }
+
+                await handleStartStudySession(btn.dataset.materia, qtd); 
                 break;
             
             case 'show-guided-planner': await abrirPlannerGuiado(); break;
+            
             case 'show-simulados-menu': 
                 quizReturnPath = 'simulados';
                 appContent.innerHTML = renderSimuladosMenu(); 
@@ -269,6 +284,7 @@ async function abrirPlannerGuiado() {
     if (userData.metaDiaria) {
         let idx = userData.cicloIndex || 0;
         if (idx >= CICLO_DE_ESTUDOS.length) idx = 0;
+        // Passa a meta diária e o índice atual para renderizar o card correto
         appContent.innerHTML = renderPlanner_TarefaDoDia(userData, idx);
     } else {
         appContent.innerHTML = renderPlannerSetupForm();
@@ -286,18 +302,21 @@ async function handleSavePlannerSetup(form) {
     } catch(e) { console.error(e); }
 }
 
-// --- [ LÓGICA: QUIZ E BUSCA ] ---
-async function handleStartStudySession(materiaKey) {
+// --- [ LÓGICA: QUIZ E BUSCA INTELIGENTE ] ---
+async function handleStartStudySession(materiaKey, limitQtd = 50) {
     appContent.innerHTML = renderLoadingState();
     
     const variacoes = MATERIA_VARIACOES[materiaKey] || [materiaKey];
-    
+    console.log(`🔍 Buscando ${limitQtd} questões de: ${variacoes.join(' OU ')}`);
+
     try {
+        // Agora usamos o 'limitQtd' que vem da meta do usuário
         const q = query(
             collection(db, 'questoes_oab'), 
             where("materia", "in", variacoes), 
-            limit(50)
+            limit(limitQtd) // AQUI ESTÁ A MÁGICA: Limita exatamente à meta
         );
+        
         const snapshot = await getDocs(q);
         
         if (snapshot.empty) {
@@ -309,11 +328,11 @@ async function handleStartStudySession(materiaKey) {
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
         questoes.sort(() => Math.random() - 0.5); 
 
-        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-        metaQuestoesDoDia = userDoc.data()?.metaDiaria || 20;
+        // Atualiza a variável global caso seja usada em outro lugar
+        metaQuestoesDoDia = limitQtd;
 
         const nomeMateria = MATERIA_VARIACOES[materiaKey] ? MATERIA_VARIACOES[materiaKey][0] : materiaKey;
-        iniciarQuiz(questoes, `Estudo: ${nomeMateria}`);
+        iniciarQuiz(questoes, `Meta: ${nomeMateria}`);
 
     } catch (error) {
         appContent.innerHTML = `<p class="text-red-500 text-center mt-10">Erro: ${error.message}</p>`;
@@ -385,7 +404,6 @@ async function handleLimparCaderno(colecaoNome) {
     } catch(e) { console.error(e); }
 }
 
-// --- [ RESET DO PROGRESSO ] ---
 async function handleResetarDesempenho() {
     if(!confirm("⚠️ ATENÇÃO: Isso apagará TODO o seu histórico.\n\nEssa ação não pode ser desfeita. Deseja continuar?")) return;
     appContent.innerHTML = renderLoadingState();
@@ -400,6 +418,14 @@ async function handleResetarDesempenho() {
         await deleteSub('progresso');
         await deleteSub('questoes_erradas');
         await deleteSub('questoes_acertadas');
+        
+        // Zera o ciclo e a sequência
+        await updateDoc(doc(db, 'users', uid), {
+            cicloIndex: 0,
+            sequenciaDias: 0,
+            totalDiasEstudo: 0
+        });
+
         alert("Progresso resetado!");
         loadDashboard(auth.currentUser);
     } catch (error) {
@@ -444,7 +470,6 @@ function renderQuizUI() {
     const questao = quizQuestoes[quizIndexAtual];
     if (!questao) return renderRelatorioFinal();
 
-    const meta = (quizReturnPath === 'menu') ? Math.min(metaQuestoesDoDia, quizQuestoes.length) : quizQuestoes.length;
     let timerHtml = quizTempoRestante ? `<div id="quiz-timer-display" class="font-mono bg-gray-900 text-white px-3 py-1 rounded text-sm">Carregando...</div>` : '';
 
     const htmlAlts = ['a', 'b', 'c', 'd'].map(letra => {
@@ -463,7 +488,7 @@ function renderQuizUI() {
             <div class="flex justify-between items-center mb-6">
                 <div>
                     <h2 class="text-xl font-bold text-gray-900">${quizTitle}</h2>
-                    <p class="text-sm text-gray-500">Questão ${quizIndexAtual + 1}</p>
+                    <p class="text-sm text-gray-500">Questão ${quizIndexAtual + 1} de ${quizQuestoes.length}</p>
                 </div>
                 ${timerHtml}
             </div>
@@ -539,11 +564,14 @@ async function handleConfirmarResposta() {
 
 async function handleProximaQuestao() {
     quizIndexAtual++;
-    const fimPorMeta = (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia);
     
-    if (quizIndexAtual >= quizQuestoes.length || fimPorMeta) {
+    // Verifica se acabou as questões do array (que agora tem o tamanho exato da meta)
+    if (quizIndexAtual >= quizQuestoes.length) {
         renderRelatorioFinal();
-        if (quizReturnPath === 'menu') {
+        
+        // SE FOR PLANNER: Gira a chave do ciclo automaticamente
+        if (quizReturnPath === 'planner') {
+            console.log("🔄 Ciclo concluído! Avançando matéria...");
             const user = auth.currentUser;
             const ref = doc(db, 'users', user.uid);
             getDoc(ref).then(snap => {
@@ -563,7 +591,7 @@ function renderRelatorioFinal() {
     const perc = quizReport.total > 0 ? ((quizReport.acertos / quizReport.total) * 100).toFixed(0) : 0;
     appContent.innerHTML = `
         <div class="text-center max-w-md mx-auto pt-10">
-            <h2 class="text-3xl font-bold text-gray-900 mb-2">Resumo da Sessão</h2>
+            <h2 class="text-3xl font-bold text-gray-900 mb-2">Meta Cumprida! 🎯</h2>
             <div class="grid grid-cols-3 gap-4 mb-8 mt-8">
                 <div class="bg-green-50 p-4 rounded-xl border border-green-100">
                     <p class="text-xs font-bold text-green-600 uppercase">Acertos</p>
@@ -590,7 +618,7 @@ function renderStudentDashboard(userData, stats) {
     return `
         <header class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900">Olá, <span class="text-blue-600">${userData.nome || 'Aluno'}</span>! 👋</h1>
-            <p class="text-gray-500">Sua preparação para a OAB contínua.</p>
+            <p class="text-gray-500">Sua preparação para a OAB continua.</p>
         </header>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
@@ -615,7 +643,7 @@ function renderStudentDashboard(userData, stats) {
                 <h2 class="text-xl font-bold text-gray-800 mb-4">Menu de Estudos</h2>
                 <div data-action="show-guided-planner" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-blue-300 hover:shadow-md transition cursor-pointer flex items-center gap-4 group">
                     <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl group-hover:scale-110 transition"><ion-icon name="calendar"></ion-icon></div>
-                    <div><h3 class="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition">Planner Guiado</h3><p class="text-sm text-gray-500">Ciclo automático de matérias.</p></div>
+                    <div><h3 class="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition">Planner Guiado</h3><p class="text-sm text-gray-500">Ciclo automático: ${userData.metaDiaria || 20} questões/dia.</p></div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div data-action="show-caderno-erros" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-red-200 hover:shadow-md transition cursor-pointer">
@@ -648,12 +676,11 @@ function renderStudentDashboard(userData, stats) {
 function renderFreeStudyMenu() {
     const botoes = Object.keys(MATERIA_VARIACOES).map(key => {
         const nomeBonito = MATERIA_VARIACOES[key][0];
-        return `<button data-action="start-study-session" data-materia="${key}" class="p-4 bg-white border border-gray-200 rounded-xl hover:border-blue-500 hover:shadow-md transition text-left flex items-center gap-3 group"><div class="w-2 h-2 rounded-full bg-blue-500 group-hover:scale-125 transition"></div><span class="font-medium text-gray-700 group-hover:text-blue-700">${nomeBonito}</span></button>`;
+        return `<button data-action="start-study-session" data-materia="${key}" data-source="freestudy" class="p-4 bg-white border border-gray-200 rounded-xl hover:border-blue-500 hover:shadow-md transition text-left flex items-center gap-3 group"><div class="w-2 h-2 rounded-full bg-blue-500 group-hover:scale-125 transition"></div><span class="font-medium text-gray-700 group-hover:text-blue-700">${nomeBonito}</span></button>`;
     }).join('');
     return `<div class="max-w-4xl mx-auto"><button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button><h2 class="text-2xl font-bold text-gray-900 mb-6">Escolha uma Matéria</h2><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${botoes}</div></div>`;
 }
 
-// --- [ RENDERIZAÇÃO DOS SIMULADOS (DINÂMICO) ] ---
 function renderSimuladosMenu() {
     // Função auxiliar para converter números em romanos
     function toRoman(num) {
@@ -685,7 +712,7 @@ function renderSimuladosMenu() {
             </select>
             <button data-action="start-simulado-edicao-dropdown" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mb-6">Iniciar Edição</button>
             <hr class="mb-6">
-            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Assertivo (80 Questões)</button>
+            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Aleatório (80 Questões)</button>
         </div>
     `;
 }
@@ -693,7 +720,31 @@ function renderSimuladosMenu() {
 function renderPlanner_TarefaDoDia(userData, cicloIndex) {
     const materiaKey = CICLO_DE_ESTUDOS[cicloIndex] || CICLO_DE_ESTUDOS[0];
     const nomeMateria = MATERIA_VARIACOES[materiaKey] ? MATERIA_VARIACOES[materiaKey][0] : materiaKey;
-    return `<button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button><div class="bg-white p-8 rounded-2xl border-l-8 border-blue-500 shadow-lg max-w-2xl mx-auto mt-10"><h2 class="text-3xl font-bold text-gray-900 mb-2">Meta de Hoje</h2><div class="flex items-center gap-4 mb-8 mt-6"><div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-3xl"><ion-icon name="target"></ion-icon></div><div><p class="text-sm text-gray-500 uppercase font-bold">Matéria do Ciclo</p><p class="text-2xl font-bold text-blue-600 capitalize">${nomeMateria}</p></div></div><button data-action="start-study-session" data-materia="${materiaKey}" class="w-full bg-blue-600 text-white py-4 rounded-xl text-xl font-bold hover:bg-blue-700 transition shadow-lg">Iniciar ${userData.metaDiaria} Questões</button></div>`;
+    const meta = userData.metaDiaria || 20;
+
+    return `
+        <button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button>
+        <div class="bg-white p-8 rounded-2xl border-l-8 border-blue-500 shadow-lg max-w-2xl mx-auto mt-10">
+            <h2 class="text-3xl font-bold text-gray-900 mb-2">Meta de Hoje</h2>
+            <div class="flex items-center gap-4 mb-8 mt-6">
+                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-3xl">
+                    <ion-icon name="target"></ion-icon>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500 uppercase font-bold">Matéria do Ciclo</p>
+                    <p class="text-2xl font-bold text-blue-600 capitalize">${nomeMateria}</p>
+                </div>
+            </div>
+            
+            <button data-action="start-study-session" 
+                    data-materia="${materiaKey}" 
+                    data-quantidade="${meta}"
+                    data-source="planner"
+                    class="w-full bg-blue-600 text-white py-4 rounded-xl text-xl font-bold hover:bg-blue-700 transition shadow-lg">
+                Iniciar ${meta} Questões
+            </button>
+        </div>
+    `;
 }
 
 function renderPlannerSetupForm() {
