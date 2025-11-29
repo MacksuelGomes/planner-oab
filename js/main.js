@@ -1,20 +1,20 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (CORRIGIDO PARA NOMES MISTOS NO JSON)
+ * ARQUIVO: js/main.js (VERSÃO COMPLETA + CORREÇÃO DE NOMES)
  * ========================================================
  */
 
+// --- [ PARTE 1: IMPORTAR MÓDULOS ] ---
 import { auth, db } from './auth.js'; 
 import { 
     doc, getDoc, collection, getDocs, query, where, updateDoc,
     setDoc, increment, limit, Timestamp, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-console.log("🚀 main.js: Carregado.");
+console.log("🚀 main.js: Carregado (Versão Completa).");
 
-// --- [ CONFIGURAÇÃO DE MAPEAMENTO (CORREÇÃO DO JSON) ] ---
-// O seu banco tem nomes misturados (ex: "Direito Penal" e "Penal").
-// Esta lista garante que o sistema encontre ambos.
+// --- [ CONFIGURAÇÃO: MAPA DE VARIAÇÕES (CORREÇÃO DO BANCO) ] ---
+// Isso permite que o sistema encontre a matéria mesmo se o nome variar no JSON
 const MATERIA_VARIACOES = {
     "etica": ["Ética Profissional", "Etica", "Ética"],
     "constitucional": ["Direito Constitucional", "Constitucional"],
@@ -35,7 +35,6 @@ const MATERIA_VARIACOES = {
     "filosofia": ["Filosofia do Direito", "Filosofia"]
 };
 
-// --- [ CONSTANTES ] ---
 const CICLO_DE_ESTUDOS = [
     "etica", "constitucional", "civil", "processo_civil", "penal", 
     "processo_penal", "administrativo", "tributario", "trabalho", 
@@ -56,6 +55,7 @@ let quizTitle = 'Estudo';
 let quizReport = { acertos: 0, erros: 0, total: 0 };
 let quizTempoRestante = null;
 let cronometroInterval = null;
+let anotacaoDebounceTimer = null;
 
 // --- [ INICIALIZAÇÃO ] ---
 window.initApp = async function(uid) {
@@ -64,7 +64,6 @@ window.initApp = async function(uid) {
     // Garante referência ao container principal
     appContent = document.getElementById('dynamic-content');
     if (!appContent) {
-        // Tenta criar se não existir
         const main = document.querySelector('main');
         if(main) {
             main.innerHTML = '<div id="dynamic-content"></div>';
@@ -78,7 +77,7 @@ window.initApp = async function(uid) {
     await loadDashboard({ uid: uid });
 };
 
-// --- [ DASHBOARD ] ---
+// --- [ DASHBOARD & ESTATÍSTICAS ] ---
 export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval);
     appContent.innerHTML = renderLoadingState();
@@ -89,12 +88,20 @@ export async function loadDashboard(user) {
         
         if (userDoc.exists()) {
             const userData = userDoc.data();
-            const stats = await calcularEstatisticasEstudo(user.uid);
-            appContent.innerHTML = renderStudentDashboard(userData, stats);
             
-            // Renderiza gráfico se houver dados
-            if (stats.chartLabels.length > 0) {
-                setTimeout(() => renderPerformanceChart(stats.chartLabels, stats.chartData), 100);
+            // Atualiza sequência (Streak)
+            await atualizarSequenciaDias(userData, userDocRef);
+
+            // Verifica Admin
+            if (userData.isAdmin === true) {
+                appContent.innerHTML = renderAdminDashboard(userData);
+            } else {
+                const stats = await calcularEstatisticasEstudo(user.uid);
+                appContent.innerHTML = renderStudentDashboard(userData, stats);
+                
+                if (stats.chartLabels.length > 0) {
+                    setTimeout(() => renderPerformanceChart(stats.chartLabels, stats.chartData), 100);
+                }
             }
         } else {
             appContent.innerHTML = `<div class="p-8 text-center">Perfil não encontrado. Recarregue a página.</div>`;
@@ -102,6 +109,31 @@ export async function loadDashboard(user) {
     } catch (error) {
         console.error(error);
         appContent.innerHTML = `<div class="p-8 text-red-500 text-center">Erro: ${error.message}</div>`;
+    }
+}
+
+async function atualizarSequenciaDias(userData, userDocRef) {
+    const hojeStr = new Date().toISOString().split('T')[0];
+    let ultimoLoginData = userData.ultimoLogin ? userData.ultimoLogin.toDate() : new Date();
+    const ultimoLoginStr = ultimoLoginData.toISOString().split('T')[0];
+
+    if (ultimoLoginStr !== hojeStr) {
+        const ontem = new Date();
+        ontem.setDate(ontem.getDate() - 1);
+        const ontemStr = ontem.toISOString().split('T')[0];
+
+        const totalDiasEstudo = (userData.totalDiasEstudo || 0) + 1;
+        let sequenciaDias = 1; 
+        
+        if (ultimoLoginStr === ontemStr) {
+            sequenciaDias = (userData.sequenciaDias || 0) + 1;
+        }
+        
+        await updateDoc(userDocRef, {
+            totalDiasEstudo,
+            sequenciaDias,
+            ultimoLogin: Timestamp.now()
+        });
     }
 }
 
@@ -116,7 +148,9 @@ async function calcularEstatisticasEstudo(uid) {
         totalResolvidas += d.totalResolvidas || 0;
         totalAcertos += d.totalAcertos || 0;
         if(d.totalResolvidas > 0) {
-            chartLabels.push(doc.id);
+            // Tenta pegar o nome bonito do mapa, se não usa o ID
+            const nomeBonito = MATERIA_VARIACOES[doc.id] ? MATERIA_VARIACOES[doc.id][0] : doc.id;
+            chartLabels.push(nomeBonito);
             chartData.push(((d.totalAcertos/d.totalResolvidas)*100).toFixed(0));
         }
     });
@@ -125,17 +159,15 @@ async function calcularEstatisticasEstudo(uid) {
     return { totalResolvidas, totalAcertos, taxaGlobal, chartLabels, chartData };
 }
 
-// --- [ CONTROLADOR DE EVENTOS ] ---
+// --- [ CONTROLADOR DE EVENTOS (ROTEAMENTO) ] ---
 document.addEventListener('click', async (e) => {
-    // 1. Lógica de Seleção de Alternativa (Visual)
+    // 1. Seleção de Alternativa (Visual)
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
-        // Remove seleção anterior
         document.querySelectorAll('[data-alternativa]').forEach(el => {
             el.classList.remove('bg-blue-50', 'border-blue-500', 'text-blue-800');
             el.classList.add('bg-white', 'border-gray-200', 'text-gray-700');
         });
-        // Aplica nova seleção
         alternativaEl.classList.remove('bg-white', 'border-gray-200', 'text-gray-700');
         alternativaEl.classList.add('bg-blue-50', 'border-blue-500', 'text-blue-800');
         alternativaSelecionada = alternativaEl.dataset.alternativa;
@@ -148,24 +180,51 @@ document.addEventListener('click', async (e) => {
     const action = btn.dataset.action;
     
     try {
-        if (action === 'show-free-study') {
-            quizReturnPath = 'menu';
-            appContent.innerHTML = renderFreeStudyMenu();
-        }
-        else if (action === 'start-study-session') {
-            await handleStartStudySession(btn.dataset.materia);
-        }
-        else if (action === 'confirmar-resposta') {
-            await handleConfirmarResposta();
-        }
-        else if (action === 'proxima-questao') {
-            await handleProximaQuestao();
-        }
-        else if (action === 'sair-quiz' || action === 'student-voltar-menu') {
-            loadDashboard(auth.currentUser);
-        }
-        else if (action === 'show-simulados-menu') {
-            alert("Simulados em breve (Ajuste de banco em andamento)");
+        switch(action) {
+            // --- Fluxo Principal ---
+            case 'show-free-study': 
+                quizReturnPath = 'menu';
+                appContent.innerHTML = renderFreeStudyMenu(); 
+                break;
+            case 'start-study-session': 
+                await handleStartStudySession(btn.dataset.materia); 
+                break;
+            
+            // --- Planner & Simulados ---
+            case 'show-guided-planner': await abrirPlannerGuiado(); break;
+            case 'show-simulados-menu': 
+                quizReturnPath = 'simulados';
+                appContent.innerHTML = renderSimuladosMenu(); 
+                break;
+            case 'start-simulado-edicao-dropdown': await handleStartSimuladoDropdown(); break;
+            case 'start-simulado-assertivo': await handleStartSimuladoAssertivo(); break;
+
+            // --- Cadernos ---
+            case 'show-caderno-erros': 
+                quizReturnPath = 'erros'; 
+                await handleStartCaderno('questoes_erradas', 'Caderno de Erros'); 
+                break;
+            case 'show-caderno-acertos': 
+                quizReturnPath = 'acertos'; 
+                await handleStartCaderno('questoes_acertadas', 'Caderno de Acertos'); 
+                break;
+            case 'limpar-caderno-erros': await handleLimparCaderno('questoes_erradas'); break;
+            case 'limpar-caderno-acertos': await handleLimparCaderno('questoes_acertadas'); break;
+
+            // --- Quiz Flow ---
+            case 'confirmar-resposta': await handleConfirmarResposta(); break;
+            case 'proxima-questao': await handleProximaQuestao(); break;
+            case 'sair-quiz': 
+            case 'student-voltar-menu':
+                loadDashboard(auth.currentUser); 
+                break;
+            
+            // --- Admin ---
+            case 'show-create-question-form': appContent.innerHTML = renderCreateQuestionForm(); break;
+            case 'admin-voltar-painel': loadDashboard(auth.currentUser); break;
+            
+            // --- Reset ---
+            case 'resetar-desempenho': await handleResetarDesempenho(); break;
         }
     } catch (err) {
         console.error("Erro na ação:", err);
@@ -173,17 +232,51 @@ document.addEventListener('click', async (e) => {
     }
 });
 
-// --- [ LÓGICA DO QUIZ ] ---
+// Listener para Formulários
+document.addEventListener('submit', async (e) => {
+    if (e.target.id === 'form-planner-setup') {
+        e.preventDefault();
+        await handleSavePlannerSetup(e.target);
+    }
+});
+
+// --- [ LÓGICA: PLANNER E CICLO ] ---
+
+async function abrirPlannerGuiado() {
+    const user = auth.currentUser;
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    const userData = userDoc.data();
+    
+    if (userData.metaDiaria) {
+        let idx = userData.cicloIndex || 0;
+        if (idx >= CICLO_DE_ESTUDOS.length) idx = 0;
+        appContent.innerHTML = renderPlanner_TarefaDoDia(userData, idx);
+    } else {
+        appContent.innerHTML = renderPlannerSetupForm();
+    }
+}
+
+async function handleSavePlannerSetup(form) {
+    const meta = form.metaDiaria.value;
+    try { 
+        await updateDoc(doc(db, 'users', auth.currentUser.uid), { 
+            metaDiaria: parseInt(meta), 
+            cicloIndex: 0 
+        }); 
+        abrirPlannerGuiado(); 
+    } catch(e) { console.error(e); }
+}
+
+// --- [ LÓGICA: QUIZ E BUSCA (CORRIGIDA) ] ---
 
 async function handleStartStudySession(materiaKey) {
     appContent.innerHTML = renderLoadingState();
     
-    // Pega as variações de nome (Ex: "Direito Penal" e "Penal")
+    // CORREÇÃO: Pega as variações de nome para buscar no banco
     const variacoes = MATERIA_VARIACOES[materiaKey] || [materiaKey];
     console.log(`🔍 Buscando questões para: ${variacoes.join(' OU ')}`);
 
     try {
-        // Usa o operador 'in' para buscar qualquer uma das variações
         const q = query(
             collection(db, 'questoes_oab'), 
             where("materia", "in", variacoes), 
@@ -196,21 +289,20 @@ async function handleStartStudySession(materiaKey) {
             appContent.innerHTML = `
                 <div class="text-center p-10">
                     <p class="text-gray-600 mb-4">Nenhuma questão encontrada para <b>${materiaKey}</b>.</p>
-                    <p class="text-sm text-gray-400">Verifique se o banco de dados foi carregado corretamente.</p>
                     <button data-action="student-voltar-menu" class="mt-4 text-blue-600 font-bold">Voltar</button>
                 </div>`;
             return;
         }
 
         const questoes = [];
-        snapshot.forEach(doc => {
-            questoes.push({ ...doc.data(), id: doc.id });
-        });
+        snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        questoes.sort(() => Math.random() - 0.5); // Embaralha
 
-        // Embaralha as questões
-        questoes.sort(() => Math.random() - 0.5);
+        // Define meta baseada no contexto
+        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        metaQuestoesDoDia = userDoc.data()?.metaDiaria || 20;
 
-        iniciarQuiz(questoes, `Estudo: ${materiaKey.toUpperCase()}`);
+        iniciarQuiz(questoes, `Estudo: ${MATERIA_VARIACOES[materiaKey] ? MATERIA_VARIACOES[materiaKey][0] : materiaKey}`);
 
     } catch (error) {
         console.error(error);
@@ -218,26 +310,128 @@ async function handleStartStudySession(materiaKey) {
     }
 }
 
-function iniciarQuiz(questoes, titulo) {
+async function handleStartSimuladoDropdown() {
+    const select = document.getElementById('select-simulado-edicao');
+    if (!select || !select.value) return alert("Selecione uma edição.");
+    
+    const [num, rom] = select.value.split(',');
+    appContent.innerHTML = renderLoadingState();
+    
+    const variacoes = [`Exame ${rom}`, `OAB ${rom}`, num, rom, `Exame ${num}`, rom.trim()];
+    
+    try {
+        const q = query(collection(db, 'questoes_oab'), where("edicao", "in", variacoes));
+        const snapshot = await getDocs(q);
+        
+        if (snapshot.empty) {
+            return alert(`Nenhuma questão encontrada para o exame ${rom}.`);
+        }
+        
+        const questoes = [];
+        snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        
+        iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60); 
+        
+    } catch (error) {
+        alert("Erro ao carregar simulado: " + error.message);
+        loadDashboard(auth.currentUser);
+    }
+}
+
+async function handleStartSimuladoAssertivo() {
+    appContent.innerHTML = renderLoadingState();
+    try {
+        const q = query(collection(db, 'questoes_oab'), limit(200)); // Pega amostra maior
+        const snapshot = await getDocs(q);
+        
+        const questoes = [];
+        snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        questoes.sort(() => Math.random() - 0.5);
+        
+        iniciarQuiz(questoes.slice(0, 80), "Simulado Assertivo", 5 * 60 * 60);
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+async function handleStartCaderno(colecaoNome, titulo) {
+    appContent.innerHTML = renderLoadingState();
+    try {
+        const ref = collection(db, 'users', auth.currentUser.uid, colecaoNome);
+        const snapshot = await getDocs(ref);
+        
+        if (snapshot.empty) {
+            appContent.innerHTML = `<div class="text-center p-10"><p>${titulo} está vazio.</p><button data-action="student-voltar-menu" class="text-blue-600">Voltar</button></div>`;
+            return;
+        }
+        
+        const questoes = [];
+        snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
+        iniciarQuiz(questoes, titulo);
+        
+    } catch (error) {
+        alert("Erro: " + error.message);
+    }
+}
+
+async function handleLimparCaderno(colecaoNome) {
+    if (!confirm("Tem certeza que deseja apagar todas as questões deste caderno?")) return;
+    try {
+        const ref = collection(db, 'users', auth.currentUser.uid, colecaoNome);
+        const snapshot = await getDocs(ref);
+        const promises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(promises);
+        alert("Caderno limpo!");
+        loadDashboard(auth.currentUser);
+    } catch(e) { console.error(e); }
+}
+
+// --- [ EXECUÇÃO DO QUIZ ] ---
+
+function iniciarQuiz(questoes, titulo, tempo = null) {
     quizQuestoes = questoes;
     quizIndexAtual = 0;
     alternativaSelecionada = null;
     respostaConfirmada = false;
     quizTitle = titulo;
     quizReport = { acertos: 0, erros: 0, total: 0 };
+    quizTempoRestante = tempo;
     
     renderQuizUI();
+    if (tempo) startCronometro();
+}
+
+function startCronometro() {
+    cronometroInterval = setInterval(() => {
+        quizTempoRestante--;
+        const timerEl = document.getElementById('quiz-timer-display');
+        if(timerEl) {
+            const h = Math.floor(quizTempoRestante / 3600).toString().padStart(2,'0');
+            const m = Math.floor((quizTempoRestante % 3600) / 60).toString().padStart(2,'0');
+            const s = (quizTempoRestante % 60).toString().padStart(2,'0');
+            timerEl.textContent = `${h}:${m}:${s}`;
+        }
+        if (quizTempoRestante <= 0) {
+            clearInterval(cronometroInterval);
+            alert("Tempo esgotado!");
+            renderRelatorioFinal();
+        }
+    }, 1000);
 }
 
 function renderQuizUI() {
     const questao = quizQuestoes[quizIndexAtual];
     if (!questao) return renderRelatorioFinal();
 
-    // Normaliza as chaves das alternativas (às vezes vem 'a', às vezes 'A')
-    const alts = questao.alternativas;
+    const meta = (quizReturnPath === 'menu') ? Math.min(metaQuestoesDoDia, quizQuestoes.length) : quizQuestoes.length;
     
+    let timerHtml = '';
+    if (quizTempoRestante) {
+        timerHtml = `<div id="quiz-timer-display" class="font-mono bg-gray-900 text-white px-3 py-1 rounded text-sm">Carregando...</div>`;
+    }
+
     const htmlAlts = ['a', 'b', 'c', 'd'].map(letra => {
-        const texto = alts[letra] || alts[letra.toUpperCase()];
+        const texto = questao.alternativas[letra] || questao.alternativas[letra.toUpperCase()];
         if (!texto) return '';
         return `
             <div data-alternativa="${letra}" class="p-4 border rounded-lg cursor-pointer transition flex items-start gap-3 bg-white border-gray-200 text-gray-700 hover:bg-gray-50 mb-3">
@@ -252,24 +446,24 @@ function renderQuizUI() {
             <div class="flex justify-between items-center mb-6">
                 <div>
                     <h2 class="text-xl font-bold text-gray-900">${quizTitle}</h2>
-                    <p class="text-sm text-gray-500">Questão ${quizIndexAtual + 1} de ${quizQuestoes.length}</p>
+                    <p class="text-sm text-gray-500">Questão ${quizIndexAtual + 1}</p>
                 </div>
+                ${timerHtml}
             </div>
 
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
                 <div class="mb-6">
                     <span class="inline-block bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded mb-2 uppercase">
-                        ${questao.materia} | ${questao.tema || 'Geral'}
+                        ${questao.materia}
                     </span>
-                    <p class="text-lg font-medium text-gray-900 leading-relaxed">${questao.enunciado}</p>
+                    <p class="text-lg font-medium text-gray-900 leading-relaxed mt-2">${questao.enunciado}</p>
                 </div>
                 <div class="space-y-3">
                     ${htmlAlts}
                 </div>
             </div>
 
-            <div id="quiz-feedback-area" class="hidden mb-20">
-                </div>
+            <div id="quiz-feedback-area" class="hidden mb-20"></div>
 
             <div class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 flex justify-between items-center z-10 md:static md:bg-transparent md:border-0">
                 <button data-action="sair-quiz" class="text-gray-500 font-medium hover:text-red-600">Sair</button>
@@ -288,16 +482,39 @@ async function handleConfirmarResposta() {
 
     respostaConfirmada = true;
     const questao = quizQuestoes[quizIndexAtual];
-    const correta = questao.correta.toLowerCase();
-    const selecionada = alternativaSelecionada.toLowerCase();
+    const correta = String(questao.correta).toLowerCase().trim();
+    const selecionada = String(alternativaSelecionada).toLowerCase().trim();
     const acertou = correta === selecionada;
 
-    // Atualiza Stats Local
     quizReport.total++;
     if (acertou) quizReport.acertos++; else quizReport.erros++;
 
-    // Salva no Firebase (Sem travar a UI)
-    salvarProgresso(questao, acertou);
+    // Salvar Progresso
+    try {
+        const userUid = auth.currentUser.uid;
+        // 1. Estatística Geral (usando a materia como ID do documento para separar por matéria)
+        // Precisamos normalizar a materia para ser chave válida (sem acentos)
+        let materiaKey = "geral";
+        // Procura a chave no mapa reverso ou usa 'geral'
+        for (const [key, values] of Object.entries(MATERIA_VARIACOES)) {
+            if (values.includes(questao.materia)) { materiaKey = key; break; }
+        }
+
+        const progRef = doc(db, 'users', userUid, 'progresso', materiaKey);
+        await setDoc(progRef, {
+            totalResolvidas: increment(1),
+            totalAcertos: increment(acertou ? 1 : 0)
+        }, { merge: true });
+
+        // 2. Cadernos
+        const collectionName = acertou ? 'questoes_acertadas' : 'questoes_erradas';
+        const cadernoRef = doc(db, 'users', userUid, collectionName, String(questao.id));
+        await setDoc(cadernoRef, { ...questao, dataResolucao: Timestamp.now() });
+
+        if (acertou) {
+            await deleteDoc(doc(db, 'users', userUid, 'questoes_erradas', String(questao.id)));
+        }
+    } catch (e) { console.error("Erro ao salvar:", e); }
 
     // Feedback Visual
     const feedbackArea = document.getElementById('quiz-feedback-area');
@@ -311,46 +528,31 @@ async function handleConfirmarResposta() {
             ${questao.comentario ? `<div class="mt-4 p-4 bg-white/50 rounded text-sm text-gray-800 border border-gray-200"><strong>Comentário:</strong> ${questao.comentario}</div>` : ''}
         </div>
     `;
-
-    // Rola para ver o feedback
     feedbackArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-    // Atualiza Botão
     const btn = document.getElementById('btn-quiz-action');
     btn.textContent = "Próxima Questão →";
     btn.dataset.action = "proxima-questao";
-    btn.classList.remove('bg-gray-900');
-    btn.classList.add('bg-blue-600');
-}
-
-async function salvarProgresso(questao, acertou) {
-    try {
-        const userUid = auth.currentUser.uid;
-        // Salva estatística geral
-        const progRef = doc(db, 'users', userUid, 'progresso', 'geral');
-        await setDoc(progRef, {
-            totalResolvidas: increment(1),
-            totalAcertos: increment(acertou ? 1 : 0)
-        }, { merge: true });
-
-        // Salva no caderno de erros/acertos
-        const collectionName = acertou ? 'questoes_acertadas' : 'questoes_erradas';
-        const cadernoRef = doc(db, 'users', userUid, collectionName, questao.id);
-        await setDoc(cadernoRef, { ...questao, dataResolucao: Timestamp.now() });
-
-        // Se acertou, remove do caderno de erros (se estiver lá)
-        if (acertou) {
-            await deleteDoc(doc(db, 'users', userUid, 'questoes_erradas', questao.id));
-        }
-    } catch (e) {
-        console.error("Erro ao salvar progresso silencioso:", e);
-    }
+    btn.classList.replace('bg-gray-900', 'bg-blue-600');
 }
 
 async function handleProximaQuestao() {
     quizIndexAtual++;
-    if (quizIndexAtual >= quizQuestoes.length) {
+    
+    // Se estiver no modo Planner, verifica se atingiu a meta do dia
+    const fimPorMeta = (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia);
+    
+    if (quizIndexAtual >= quizQuestoes.length || fimPorMeta) {
         renderRelatorioFinal();
+        // Avança ciclo se for planner
+        if (quizReturnPath === 'menu') {
+            const user = auth.currentUser;
+            const ref = doc(db, 'users', user.uid);
+            getDoc(ref).then(snap => {
+                const idx = snap.data().cicloIndex || 0;
+                updateDoc(ref, { cicloIndex: (idx + 1) % CICLO_DE_ESTUDOS.length });
+            });
+        }
     } else {
         alternativaSelecionada = null;
         respostaConfirmada = false;
@@ -360,14 +562,11 @@ async function handleProximaQuestao() {
 }
 
 function renderRelatorioFinal() {
-    const perc = ((quizReport.acertos / quizReport.total) * 100).toFixed(0);
+    const perc = quizReport.total > 0 ? ((quizReport.acertos / quizReport.total) * 100).toFixed(0) : 0;
     appContent.innerHTML = `
         <div class="text-center max-w-md mx-auto pt-10">
-            <div class="mb-6 text-6xl">🏁</div>
             <h2 class="text-3xl font-bold text-gray-900 mb-2">Resumo da Sessão</h2>
-            <p class="text-gray-500 mb-8">Você finalizou as questões selecionadas.</p>
-
-            <div class="grid grid-cols-3 gap-4 mb-8">
+            <div class="grid grid-cols-3 gap-4 mb-8 mt-8">
                 <div class="bg-green-50 p-4 rounded-xl border border-green-100">
                     <p class="text-xs font-bold text-green-600 uppercase">Acertos</p>
                     <p class="text-3xl font-bold text-green-800">${quizReport.acertos}</p>
@@ -377,11 +576,10 @@ function renderRelatorioFinal() {
                     <p class="text-3xl font-bold text-red-800">${quizReport.erros}</p>
                 </div>
                 <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                    <p class="text-xs font-bold text-blue-600 uppercase">Aproveitamento</p>
+                    <p class="text-xs font-bold text-blue-600 uppercase">Taxa</p>
                     <p class="text-3xl font-bold text-blue-800">${perc}%</p>
                 </div>
             </div>
-
             <button data-action="student-voltar-menu" class="w-full bg-gray-900 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-black transition">
                 Voltar ao Menu Principal
             </button>
@@ -389,55 +587,86 @@ function renderRelatorioFinal() {
     `;
 }
 
-// --- [ VIEWS AUXILIARES ] ---
-function renderLoadingState() {
-    return `<div class="flex items-center justify-center h-64"><div class="spinner"></div></div>`;
-}
+// --- [ VIEWS: MENUS ] ---
 
 function renderStudentDashboard(userData, stats) {
     return `
-        <div class="max-w-5xl mx-auto">
-            <header class="mb-8 flex justify-between items-center">
-                <div>
-                    <h1 class="text-2xl font-bold text-gray-900">Olá, ${userData.nome || 'Estudante'}!</h1>
-                    <p class="text-gray-500 text-sm">Vamos treinar hoje?</p>
-                </div>
-            </header>
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">Olá, <span class="text-blue-600">${userData.nome || 'Aluno'}</span>! 👋</h1>
+            <p class="text-gray-500">Sua preparação para a OAB continua.</p>
+        </header>
 
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-                    <p class="text-xs font-bold text-gray-400 uppercase">Questões Feitas</p>
-                    <p class="text-2xl font-bold text-gray-900">${stats.totalResolvidas}</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p class="text-xs text-gray-500 uppercase font-bold">Questões</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1">${stats.totalResolvidas}</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p class="text-xs text-gray-500 uppercase font-bold">Acertos</p>
+                <p class="text-2xl font-bold text-blue-600 mt-1">${stats.taxaGlobal}%</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p class="text-xs text-gray-500 uppercase font-bold">Dias</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1">${userData.totalDiasEstudo || 0}</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p class="text-xs text-gray-500 uppercase font-bold">Sequência</p>
+                <p class="text-2xl font-bold text-orange-500 mt-1">🔥 ${userData.sequenciaDias || 0}</p>
+            </div>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-6">
+            <div class="md:col-span-2 space-y-4">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Menu de Estudos</h2>
+                
+                <div data-action="show-guided-planner" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-blue-300 hover:shadow-md transition cursor-pointer flex items-center gap-4 group">
+                    <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl group-hover:scale-110 transition">
+                        <ion-icon name="calendar"></ion-icon>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition">Planner Guiado</h3>
+                        <p class="text-sm text-gray-500">Ciclo automático de matérias.</p>
+                    </div>
                 </div>
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-                    <p class="text-xs font-bold text-gray-400 uppercase">Taxa de Acerto</p>
-                    <p class="text-2xl font-bold ${stats.taxaGlobal >= 50 ? 'text-green-600' : 'text-orange-500'}">${stats.taxaGlobal}%</p>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div data-action="show-caderno-erros" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-red-200 hover:shadow-md transition cursor-pointer">
+                        <div class="text-red-500 text-2xl mb-2"><ion-icon name="alert-circle"></ion-icon></div>
+                        <h3 class="font-bold text-gray-900">Caderno de Erros</h3>
+                    </div>
+                    <div data-action="show-caderno-acertos" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-green-200 hover:shadow-md transition cursor-pointer">
+                        <div class="text-green-500 text-2xl mb-2"><ion-icon name="checkmark-circle"></ion-icon></div>
+                        <h3 class="font-bold text-gray-900">Caderno de Acertos</h3>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div data-action="show-simulados-menu" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-purple-200 hover:shadow-md transition cursor-pointer">
+                        <div class="text-purple-500 text-2xl mb-2"><ion-icon name="document-text"></ion-icon></div>
+                        <h3 class="font-bold text-gray-900">Simulados</h3>
+                    </div>
+                    <div data-action="show-free-study" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-gray-300 hover:shadow-md transition cursor-pointer">
+                        <div class="text-gray-500 text-2xl mb-2"><ion-icon name="library"></ion-icon></div>
+                        <h3 class="font-bold text-gray-900">Estudo Livre</h3>
+                    </div>
                 </div>
             </div>
 
-            <h2 class="text-lg font-bold text-gray-800 mb-4">O que vamos estudar?</h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                <button data-action="show-free-study" class="bg-blue-600 text-white p-6 rounded-xl shadow-md hover:bg-blue-700 transition text-left flex flex-col justify-between h-32 group">
-                    <ion-icon name="library" class="text-3xl mb-2 group-hover:scale-110 transition"></ion-icon>
-                    <span class="font-bold text-lg">Estudo por Matéria</span>
-                </button>
-                <button class="bg-white border border-gray-200 text-gray-600 p-6 rounded-xl hover:border-blue-300 hover:shadow-md transition text-left flex flex-col justify-between h-32 opacity-50 cursor-not-allowed">
-                    <ion-icon name="document-text" class="text-3xl mb-2"></ion-icon>
-                    <span class="font-bold text-lg">Simulados (Em Breve)</span>
-                </button>
-                <button class="bg-white border border-gray-200 text-gray-600 p-6 rounded-xl hover:border-blue-300 hover:shadow-md transition text-left flex flex-col justify-between h-32 opacity-50 cursor-not-allowed">
-                    <ion-icon name="alert-circle" class="text-3xl mb-2"></ion-icon>
-                    <span class="font-bold text-lg">Meus Erros (Em Breve)</span>
-                </button>
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">Desempenho</h3>
+                <div class="relative h-64 w-full">
+                    <canvas id="performanceChart"></canvas>
+                </div>
+                <div class="mt-6 pt-4 border-t border-gray-100 text-center">
+                    <button data-action="resetar-desempenho" class="text-xs text-red-400 hover:text-red-600 font-medium">Resetar progresso</button>
+                </div>
             </div>
         </div>
     `;
 }
 
 function renderFreeStudyMenu() {
-    // Gera botões para cada matéria do mapa
     const botoes = Object.keys(MATERIA_VARIACOES).map(key => {
-        // Tenta pegar um nome bonito (o primeiro do array)
         const nomeBonito = MATERIA_VARIACOES[key][0];
         return `
             <button data-action="start-study-session" data-materia="${key}" 
@@ -453,24 +682,113 @@ function renderFreeStudyMenu() {
             <button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2">
                 <ion-icon name="arrow-back"></ion-icon> Voltar
             </button>
-            
             <h2 class="text-2xl font-bold text-gray-900 mb-6">Escolha uma Matéria</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                ${botoes}
-            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${botoes}</div>
         </div>
     `;
 }
 
-// Funções de Navegação (Menu Superior)
+function renderSimuladosMenu() {
+    const edicoes = [
+        { num: "38", rom: "XXXVIII" }, { num: "37", rom: "XXXVII" },
+        { num: "36", rom: "XXXVI" }, { num: "35", rom: "XXXV" },
+        { num: "34", rom: "XXXIV" }, { num: "33", rom: "XXXIII" }
+    ];
+    return `
+        <button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button>
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 max-w-lg mx-auto mt-8">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Simulados</h2>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Por Edição</label>
+            <select id="select-simulado-edicao" class="w-full p-3 border border-gray-300 rounded-lg mb-4">
+                <option value="">Selecione...</option>
+                ${edicoes.map(e => `<option value="${e.num},${e.rom}">Exame ${e.rom}</option>`).join('')}
+            </select>
+            <button data-action="start-simulado-edicao-dropdown" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mb-6">Iniciar Edição</button>
+            <hr class="mb-6">
+            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Aleatório (80 Questões)</button>
+        </div>
+    `;
+}
+
+function renderPlanner_TarefaDoDia(userData, cicloIndex) {
+    const materiaKey = CICLO_DE_ESTUDOS[cicloIndex] || CICLO_DE_ESTUDOS[0];
+    const nomeMateria = MATERIA_VARIACOES[materiaKey] ? MATERIA_VARIACOES[materiaKey][0] : materiaKey;
+    
+    return `
+        <button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button>
+        <div class="bg-white p-8 rounded-2xl border-l-8 border-blue-500 shadow-lg max-w-2xl mx-auto mt-10">
+            <h2 class="text-3xl font-bold text-gray-900 mb-2">Meta de Hoje</h2>
+            <div class="flex items-center gap-4 mb-8 mt-6">
+                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-3xl">
+                    <ion-icon name="target"></ion-icon>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500 uppercase font-bold">Matéria do Ciclo</p>
+                    <p class="text-2xl font-bold text-blue-600 capitalize">${nomeMateria}</p>
+                </div>
+            </div>
+            <button data-action="start-study-session" data-materia="${materiaKey}" 
+                    class="w-full bg-blue-600 text-white py-4 rounded-xl text-xl font-bold hover:bg-blue-700 transition shadow-lg">
+                Iniciar ${userData.metaDiaria} Questões
+            </button>
+        </div>
+    `;
+}
+
+function renderPlannerSetupForm() {
+    return `
+        <div class="bg-white p-8 rounded-lg shadow-xl border border-gray-200 max-w-lg mx-auto mt-10">
+            <h2 class="text-2xl font-bold text-gray-900 mb-4">Configurar Planner</h2>
+            <p class="text-gray-600 mb-6">Quantas questões você quer fazer por dia?</p>
+            <form id="form-planner-setup" class="space-y-4">
+                <input type="number" id="metaDiaria" min="5" value="20" required class="w-full px-4 py-2 border rounded-lg">
+                <button type="submit" class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700">Salvar e Iniciar</button>
+            </form>
+        </div>
+    `;
+}
+
+function renderAdminDashboard(userData) {
+    return `
+        <div class="p-8 text-center">
+            <h1 class="text-2xl font-bold">Painel Admin</h1>
+            <p>Bem-vindo, ${userData.nome}.</p>
+            <button data-action="show-create-question-form" class="mt-4 bg-green-600 text-white px-4 py-2 rounded">Criar Questão</button>
+            <button data-action="student-voltar-menu" class="mt-4 bg-gray-500 text-white px-4 py-2 rounded">Sair</button>
+        </div>
+    `;
+}
+
+function renderCreateQuestionForm() {
+    return `<div class="p-8"><h2 class="text-xl">Adicionar Questão (Em construção)</h2><button data-action="admin-voltar-painel">Voltar</button></div>`;
+}
+
+function renderLoadingState() {
+    return `<div class="flex items-center justify-center h-full p-20"><div class="spinner"></div></div>`;
+}
+
+async function handleResetarDesempenho() {
+    if(!confirm("Tem certeza? Isso apagará todo o seu progresso.")) return;
+    // Implementar lógica de reset real aqui se necessário
+    alert("Função de reset em desenvolvimento.");
+}
+
+// Configuração de Navegação
 function setupNavigation() {
     const buttons = document.querySelectorAll('.nav-button');
     buttons.forEach(btn => {
         btn.onclick = (e) => { 
             e.preventDefault();
-            const view = btn.dataset.view;
-            if(view === 'dashboard') loadDashboard(auth.currentUser);
-            else if(view === 'simulados') alert("Em breve");
+            buttons.forEach(b => b.classList.remove('active', 'border-blue-600', 'text-blue-600'));
+            btn.classList.add('active', 'border-blue-600', 'text-blue-600');
+            
+            const viewName = btn.dataset.view;
+            if (viewName === 'dashboard') loadDashboard(auth.currentUser);
+            else if (viewName === 'ciclo') abrirPlannerGuiado();
+            else if (viewName === 'simulados') {
+                quizReturnPath = 'simulados'; 
+                appContent.innerHTML = renderSimuladosMenu();
+            }
         };
     });
 }
