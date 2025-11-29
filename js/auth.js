@@ -188,4 +188,4 @@ const btnBack = document.getElementById('back-to-login-btn');
 if (btnReset) btnReset.addEventListener('click', () => { loginForm.classList.add('hidden'); resetForm.classList.remove('hidden'); });
 if (btnBack) btnBack.addEventListener('click', () => { resetForm.classList.add('hidden'); loginForm.classList.remove('hidden'); });
 
-export { auth, db, appId };
+export { auth, db };
