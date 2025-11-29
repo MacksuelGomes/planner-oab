@@ -50,6 +50,26 @@ const TODAS_MATERIAS = [
     "trabalho", "processo_trabalho", "humanos", "consumidor", "ambiental", "eca", "internacional"
 ];
 
+/* --- ADICIONE ISTO LOGO ABAIXO DE 'TODAS_MATERIAS' --- */
+const MATERIA_MAP = {
+    "etica": "Ética Profissional",
+    "constitucional": "Direito Constitucional",
+    "civil": "Direito Civil",
+    "processo_civil": "Direito Processual Civil",
+    "penal": "Direito Penal",
+    "processo_penal": "Direito Processual Penal",
+    "administrativo": "Direito Administrativo",
+    "tributario": "Direito Tributário",
+    "trabalho": "Direito do Trabalho",
+    "processo_trabalho": "Direito Processual do Trabalho",
+    "empresarial": "Direito Empresarial",
+    "humanos": "Direitos Humanos",
+    "consumidor": "Direito do Consumidor",
+    "ambiental": "Direito Ambiental",
+    "eca": "Estatuto da Criança e do Adolescente",
+    "internacional": "Direito Internacional"
+};
+
 // --- [ PARTE 4: ESTADO DA APLICAÇÃO ] ---
 let quizQuestoes = [];         
 let quizIndexAtual = 0;        
@@ -309,11 +329,22 @@ async function abrirPlannerGuiado() {
     }
 }
 
-async function handleStartStudySession(materia) {
+async function handleStartStudySession(materiaKey) {
     appContent.innerHTML = renderLoadingState();
+    
+    // 1. Traduz o código (ex: 'etica') para o nome do banco (ex: 'Ética Profissional')
+    // Se não tiver tradução, usa o próprio nome.
+    const materiaNomeNoBanco = MATERIA_MAP[materiaKey] || materiaKey;
+    
+    console.log(`🔍 Buscando no banco por: "${materiaNomeNoBanco}"`); // Ajuda a debugar
+
     try {
-        // Coleção correta: questoes_oab
-        const q = query(collection(db, 'questoes_oab'), where("materia", "==", materia), limit(50));
+        const q = query(
+            collection(db, 'questoes_oab'), 
+            where("materia", "==", materiaNomeNoBanco), 
+            limit(50)
+        );
+        // ... (o resto da função continua igual)
         const snapshot = await getDocs(q);
         
         if (snapshot.empty) {
