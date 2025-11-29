@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO COMPLETA + CORREÇÃO DE NOMES)
+ * ARQUIVO: js/main.js (VERSÃO FINAL COM GRÁFICOS)
  * ========================================================
  */
 
@@ -11,10 +11,9 @@ import {
     setDoc, increment, limit, Timestamp, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-console.log("🚀 main.js: Carregado (Versão Completa).");
+console.log("🚀 main.js: Carregado (Versão Completa + Gráficos).");
 
 // --- [ CONFIGURAÇÃO: MAPA DE VARIAÇÕES (CORREÇÃO DO BANCO) ] ---
-// Isso permite que o sistema encontre a matéria mesmo se o nome variar no JSON
 const MATERIA_VARIACOES = {
     "etica": ["Ética Profissional", "Etica", "Ética"],
     "constitucional": ["Direito Constitucional", "Constitucional"],
@@ -41,8 +40,6 @@ const CICLO_DE_ESTUDOS = [
     "processo_trabalho", "empresarial", "etica", "constitucional"
 ];
 
-const TODAS_MATERIAS = Object.keys(MATERIA_VARIACOES);
-
 // --- [ ESTADO DA APLICAÇÃO ] ---
 let appContent = null;
 let quizQuestoes = [];
@@ -55,13 +52,11 @@ let quizTitle = 'Estudo';
 let quizReport = { acertos: 0, erros: 0, total: 0 };
 let quizTempoRestante = null;
 let cronometroInterval = null;
-let anotacaoDebounceTimer = null;
 
 // --- [ INICIALIZAÇÃO ] ---
 window.initApp = async function(uid) {
     console.log("🚀 initApp chamado para UID:", uid);
     
-    // Garante referência ao container principal
     appContent = document.getElementById('dynamic-content');
     if (!appContent) {
         const main = document.querySelector('main');
@@ -88,19 +83,23 @@ export async function loadDashboard(user) {
         
         if (userDoc.exists()) {
             const userData = userDoc.data();
-            
-            // Atualiza sequência (Streak)
             await atualizarSequenciaDias(userData, userDocRef);
 
-            // Verifica Admin
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
                 const stats = await calcularEstatisticasEstudo(user.uid);
                 appContent.innerHTML = renderStudentDashboard(userData, stats);
                 
+                // Renderiza o gráfico se houver dados e a função estiver disponível
                 if (stats.chartLabels.length > 0) {
-                    setTimeout(() => renderPerformanceChart(stats.chartLabels, stats.chartData), 100);
+                    setTimeout(() => {
+                        if (typeof renderPerformanceChart === 'function') {
+                            renderPerformanceChart(stats.chartLabels, stats.chartData);
+                        } else {
+                            console.warn("⚠️ Função de gráfico não encontrada ou Chart.js não carregado.");
+                        }
+                    }, 500);
                 }
             }
         } else {
@@ -148,7 +147,6 @@ async function calcularEstatisticasEstudo(uid) {
         totalResolvidas += d.totalResolvidas || 0;
         totalAcertos += d.totalAcertos || 0;
         if(d.totalResolvidas > 0) {
-            // Tenta pegar o nome bonito do mapa, se não usa o ID
             const nomeBonito = MATERIA_VARIACOES[doc.id] ? MATERIA_VARIACOES[doc.id][0] : doc.id;
             chartLabels.push(nomeBonito);
             chartData.push(((d.totalAcertos/d.totalResolvidas)*100).toFixed(0));
@@ -159,9 +157,59 @@ async function calcularEstatisticasEstudo(uid) {
     return { totalResolvidas, totalAcertos, taxaGlobal, chartLabels, chartData };
 }
 
-// --- [ CONTROLADOR DE EVENTOS (ROTEAMENTO) ] ---
+// --- [ GRÁFICO (Chart.js) ] ---
+function renderPerformanceChart(labels, data) {
+    const ctx = document.getElementById('performanceChart');
+    if (!ctx) return;
+
+    // Se já existir um gráfico, destrói para criar o novo (evita sobreposição)
+    if (window.myChart instanceof Chart) {
+        window.myChart.destroy();
+    }
+
+    window.myChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Taxa de Acerto (%)',
+                data: data,
+                backgroundColor: 'rgba(37, 99, 235, 0.6)', // Azul (Tailwind blue-600)
+                borderColor: 'rgba(37, 99, 235, 1)',
+                borderWidth: 1,
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    grid: { color: '#f3f4f6' }
+                },
+                x: {
+                    grid: { display: false }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.raw + '% de Acerto';
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// --- [ CONTROLADOR DE EVENTOS ] ---
 document.addEventListener('click', async (e) => {
-    // 1. Seleção de Alternativa (Visual)
+    // 1. Seleção Visual
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         document.querySelectorAll('[data-alternativa]').forEach(el => {
@@ -173,7 +221,7 @@ document.addEventListener('click', async (e) => {
         alternativaSelecionada = alternativaEl.dataset.alternativa;
     }
 
-    // 2. Botões de Ação
+    // 2. Ações
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
 
@@ -181,7 +229,6 @@ document.addEventListener('click', async (e) => {
     
     try {
         switch(action) {
-            // --- Fluxo Principal ---
             case 'show-free-study': 
                 quizReturnPath = 'menu';
                 appContent.innerHTML = renderFreeStudyMenu(); 
@@ -190,7 +237,6 @@ document.addEventListener('click', async (e) => {
                 await handleStartStudySession(btn.dataset.materia); 
                 break;
             
-            // --- Planner & Simulados ---
             case 'show-guided-planner': await abrirPlannerGuiado(); break;
             case 'show-simulados-menu': 
                 quizReturnPath = 'simulados';
@@ -199,7 +245,6 @@ document.addEventListener('click', async (e) => {
             case 'start-simulado-edicao-dropdown': await handleStartSimuladoDropdown(); break;
             case 'start-simulado-assertivo': await handleStartSimuladoAssertivo(); break;
 
-            // --- Cadernos ---
             case 'show-caderno-erros': 
                 quizReturnPath = 'erros'; 
                 await handleStartCaderno('questoes_erradas', 'Caderno de Erros'); 
@@ -211,7 +256,6 @@ document.addEventListener('click', async (e) => {
             case 'limpar-caderno-erros': await handleLimparCaderno('questoes_erradas'); break;
             case 'limpar-caderno-acertos': await handleLimparCaderno('questoes_acertadas'); break;
 
-            // --- Quiz Flow ---
             case 'confirmar-resposta': await handleConfirmarResposta(); break;
             case 'proxima-questao': await handleProximaQuestao(); break;
             case 'sair-quiz': 
@@ -219,11 +263,8 @@ document.addEventListener('click', async (e) => {
                 loadDashboard(auth.currentUser); 
                 break;
             
-            // --- Admin ---
             case 'show-create-question-form': appContent.innerHTML = renderCreateQuestionForm(); break;
             case 'admin-voltar-painel': loadDashboard(auth.currentUser); break;
-            
-            // --- Reset ---
             case 'resetar-desempenho': await handleResetarDesempenho(); break;
         }
     } catch (err) {
@@ -232,7 +273,6 @@ document.addEventListener('click', async (e) => {
     }
 });
 
-// Listener para Formulários
 document.addEventListener('submit', async (e) => {
     if (e.target.id === 'form-planner-setup') {
         e.preventDefault();
@@ -241,7 +281,6 @@ document.addEventListener('submit', async (e) => {
 });
 
 // --- [ LÓGICA: PLANNER E CICLO ] ---
-
 async function abrirPlannerGuiado() {
     const user = auth.currentUser;
     const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -267,12 +306,10 @@ async function handleSavePlannerSetup(form) {
     } catch(e) { console.error(e); }
 }
 
-// --- [ LÓGICA: QUIZ E BUSCA (CORRIGIDA) ] ---
-
+// --- [ LÓGICA: QUIZ E BUSCA ] ---
 async function handleStartStudySession(materiaKey) {
     appContent.innerHTML = renderLoadingState();
     
-    // CORREÇÃO: Pega as variações de nome para buscar no banco
     const variacoes = MATERIA_VARIACOES[materiaKey] || [materiaKey];
     console.log(`🔍 Buscando questões para: ${variacoes.join(' OU ')}`);
 
@@ -296,13 +333,13 @@ async function handleStartStudySession(materiaKey) {
 
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
-        questoes.sort(() => Math.random() - 0.5); // Embaralha
+        questoes.sort(() => Math.random() - 0.5); 
 
-        // Define meta baseada no contexto
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         metaQuestoesDoDia = userDoc.data()?.metaDiaria || 20;
 
-        iniciarQuiz(questoes, `Estudo: ${MATERIA_VARIACOES[materiaKey] ? MATERIA_VARIACOES[materiaKey][0] : materiaKey}`);
+        const nomeMateria = MATERIA_VARIACOES[materiaKey] ? MATERIA_VARIACOES[materiaKey][0] : materiaKey;
+        iniciarQuiz(questoes, `Estudo: ${nomeMateria}`);
 
     } catch (error) {
         console.error(error);
@@ -329,9 +366,7 @@ async function handleStartSimuladoDropdown() {
         
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
-        
         iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60); 
-        
     } catch (error) {
         alert("Erro ao carregar simulado: " + error.message);
         loadDashboard(auth.currentUser);
@@ -341,17 +376,13 @@ async function handleStartSimuladoDropdown() {
 async function handleStartSimuladoAssertivo() {
     appContent.innerHTML = renderLoadingState();
     try {
-        const q = query(collection(db, 'questoes_oab'), limit(200)); // Pega amostra maior
+        const q = query(collection(db, 'questoes_oab'), limit(200)); 
         const snapshot = await getDocs(q);
-        
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
         questoes.sort(() => Math.random() - 0.5);
-        
         iniciarQuiz(questoes.slice(0, 80), "Simulado Assertivo", 5 * 60 * 60);
-    } catch (error) {
-        console.error(error);
-    }
+    } catch (error) { console.error(error); }
 }
 
 async function handleStartCaderno(colecaoNome, titulo) {
@@ -359,19 +390,14 @@ async function handleStartCaderno(colecaoNome, titulo) {
     try {
         const ref = collection(db, 'users', auth.currentUser.uid, colecaoNome);
         const snapshot = await getDocs(ref);
-        
         if (snapshot.empty) {
             appContent.innerHTML = `<div class="text-center p-10"><p>${titulo} está vazio.</p><button data-action="student-voltar-menu" class="text-blue-600">Voltar</button></div>`;
             return;
         }
-        
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
         iniciarQuiz(questoes, titulo);
-        
-    } catch (error) {
-        alert("Erro: " + error.message);
-    }
+    } catch (error) { alert("Erro: " + error.message); }
 }
 
 async function handleLimparCaderno(colecaoNome) {
@@ -386,8 +412,6 @@ async function handleLimparCaderno(colecaoNome) {
     } catch(e) { console.error(e); }
 }
 
-// --- [ EXECUÇÃO DO QUIZ ] ---
-
 function iniciarQuiz(questoes, titulo, tempo = null) {
     quizQuestoes = questoes;
     quizIndexAtual = 0;
@@ -396,7 +420,6 @@ function iniciarQuiz(questoes, titulo, tempo = null) {
     quizTitle = titulo;
     quizReport = { acertos: 0, erros: 0, total: 0 };
     quizTempoRestante = tempo;
-    
     renderQuizUI();
     if (tempo) startCronometro();
 }
@@ -424,11 +447,7 @@ function renderQuizUI() {
     if (!questao) return renderRelatorioFinal();
 
     const meta = (quizReturnPath === 'menu') ? Math.min(metaQuestoesDoDia, quizQuestoes.length) : quizQuestoes.length;
-    
-    let timerHtml = '';
-    if (quizTempoRestante) {
-        timerHtml = `<div id="quiz-timer-display" class="font-mono bg-gray-900 text-white px-3 py-1 rounded text-sm">Carregando...</div>`;
-    }
+    let timerHtml = quizTempoRestante ? `<div id="quiz-timer-display" class="font-mono bg-gray-900 text-white px-3 py-1 rounded text-sm">Carregando...</div>` : '';
 
     const htmlAlts = ['a', 'b', 'c', 'd'].map(letra => {
         const texto = questao.alternativas[letra] || questao.alternativas[letra.toUpperCase()];
@@ -450,7 +469,6 @@ function renderQuizUI() {
                 </div>
                 ${timerHtml}
             </div>
-
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
                 <div class="mb-6">
                     <span class="inline-block bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded mb-2 uppercase">
@@ -458,19 +476,12 @@ function renderQuizUI() {
                     </span>
                     <p class="text-lg font-medium text-gray-900 leading-relaxed mt-2">${questao.enunciado}</p>
                 </div>
-                <div class="space-y-3">
-                    ${htmlAlts}
-                </div>
+                <div class="space-y-3">${htmlAlts}</div>
             </div>
-
             <div id="quiz-feedback-area" class="hidden mb-20"></div>
-
             <div class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 flex justify-between items-center z-10 md:static md:bg-transparent md:border-0">
                 <button data-action="sair-quiz" class="text-gray-500 font-medium hover:text-red-600">Sair</button>
-                <button id="btn-quiz-action" data-action="confirmar-resposta" 
-                        class="bg-gray-900 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:bg-black transition transform active:scale-95">
-                    Confirmar Resposta
-                </button>
+                <button id="btn-quiz-action" data-action="confirmar-resposta" class="bg-gray-900 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:bg-black transition transform active:scale-95">Confirmar Resposta</button>
             </div>
         </div>
     `;
@@ -489,13 +500,9 @@ async function handleConfirmarResposta() {
     quizReport.total++;
     if (acertou) quizReport.acertos++; else quizReport.erros++;
 
-    // Salvar Progresso
     try {
         const userUid = auth.currentUser.uid;
-        // 1. Estatística Geral (usando a materia como ID do documento para separar por matéria)
-        // Precisamos normalizar a materia para ser chave válida (sem acentos)
         let materiaKey = "geral";
-        // Procura a chave no mapa reverso ou usa 'geral'
         for (const [key, values] of Object.entries(MATERIA_VARIACOES)) {
             if (values.includes(questao.materia)) { materiaKey = key; break; }
         }
@@ -506,7 +513,6 @@ async function handleConfirmarResposta() {
             totalAcertos: increment(acertou ? 1 : 0)
         }, { merge: true });
 
-        // 2. Cadernos
         const collectionName = acertou ? 'questoes_acertadas' : 'questoes_erradas';
         const cadernoRef = doc(db, 'users', userUid, collectionName, String(questao.id));
         await setDoc(cadernoRef, { ...questao, dataResolucao: Timestamp.now() });
@@ -516,14 +522,11 @@ async function handleConfirmarResposta() {
         }
     } catch (e) { console.error("Erro ao salvar:", e); }
 
-    // Feedback Visual
     const feedbackArea = document.getElementById('quiz-feedback-area');
     feedbackArea.classList.remove('hidden');
     feedbackArea.innerHTML = `
         <div class="p-6 rounded-xl border ${acertou ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}">
-            <h3 class="font-bold ${acertou ? 'text-green-800' : 'text-red-800'} mb-2 text-xl">
-                ${acertou ? 'Acertou! 🎉' : 'Errou 😔'}
-            </h3>
+            <h3 class="font-bold ${acertou ? 'text-green-800' : 'text-red-800'} mb-2 text-xl">${acertou ? 'Acertou! 🎉' : 'Errou 😔'}</h3>
             <p class="text-gray-700 mb-2">A alternativa correta é a <strong>${correta.toUpperCase()}</strong>.</p>
             ${questao.comentario ? `<div class="mt-4 p-4 bg-white/50 rounded text-sm text-gray-800 border border-gray-200"><strong>Comentário:</strong> ${questao.comentario}</div>` : ''}
         </div>
@@ -538,13 +541,10 @@ async function handleConfirmarResposta() {
 
 async function handleProximaQuestao() {
     quizIndexAtual++;
-    
-    // Se estiver no modo Planner, verifica se atingiu a meta do dia
     const fimPorMeta = (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia);
     
     if (quizIndexAtual >= quizQuestoes.length || fimPorMeta) {
         renderRelatorioFinal();
-        // Avança ciclo se for planner
         if (quizReturnPath === 'menu') {
             const user = auth.currentUser;
             const ref = doc(db, 'users', user.uid);
@@ -587,15 +587,13 @@ function renderRelatorioFinal() {
     `;
 }
 
-// --- [ VIEWS: MENUS ] ---
-
+// --- [ VIEWS ] ---
 function renderStudentDashboard(userData, stats) {
     return `
         <header class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900">Olá, <span class="text-blue-600">${userData.nome || 'Aluno'}</span>! 👋</h1>
             <p class="text-gray-500">Sua preparação para a OAB continua.</p>
         </header>
-
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <p class="text-xs text-gray-500 uppercase font-bold">Questões</p>
@@ -614,49 +612,33 @@ function renderStudentDashboard(userData, stats) {
                 <p class="text-2xl font-bold text-orange-500 mt-1">🔥 ${userData.sequenciaDias || 0}</p>
             </div>
         </div>
-
         <div class="grid md:grid-cols-3 gap-6">
             <div class="md:col-span-2 space-y-4">
                 <h2 class="text-xl font-bold text-gray-800 mb-4">Menu de Estudos</h2>
-                
                 <div data-action="show-guided-planner" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-blue-300 hover:shadow-md transition cursor-pointer flex items-center gap-4 group">
-                    <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl group-hover:scale-110 transition">
-                        <ion-icon name="calendar"></ion-icon>
-                    </div>
-                    <div>
-                        <h3 class="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition">Planner Guiado</h3>
-                        <p class="text-sm text-gray-500">Ciclo automático de matérias.</p>
-                    </div>
+                    <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl group-hover:scale-110 transition"><ion-icon name="calendar"></ion-icon></div>
+                    <div><h3 class="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition">Planner Guiado</h3><p class="text-sm text-gray-500">Ciclo automático de matérias.</p></div>
                 </div>
-
                 <div class="grid grid-cols-2 gap-4">
                     <div data-action="show-caderno-erros" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-red-200 hover:shadow-md transition cursor-pointer">
-                        <div class="text-red-500 text-2xl mb-2"><ion-icon name="alert-circle"></ion-icon></div>
-                        <h3 class="font-bold text-gray-900">Caderno de Erros</h3>
+                        <div class="text-red-500 text-2xl mb-2"><ion-icon name="alert-circle"></ion-icon></div><h3 class="font-bold text-gray-900">Caderno de Erros</h3>
                     </div>
                     <div data-action="show-caderno-acertos" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-green-200 hover:shadow-md transition cursor-pointer">
-                        <div class="text-green-500 text-2xl mb-2"><ion-icon name="checkmark-circle"></ion-icon></div>
-                        <h3 class="font-bold text-gray-900">Caderno de Acertos</h3>
+                        <div class="text-green-500 text-2xl mb-2"><ion-icon name="checkmark-circle"></ion-icon></div><h3 class="font-bold text-gray-900">Caderno de Acertos</h3>
                     </div>
                 </div>
-                
                 <div class="grid grid-cols-2 gap-4">
                     <div data-action="show-simulados-menu" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-purple-200 hover:shadow-md transition cursor-pointer">
-                        <div class="text-purple-500 text-2xl mb-2"><ion-icon name="document-text"></ion-icon></div>
-                        <h3 class="font-bold text-gray-900">Simulados</h3>
+                        <div class="text-purple-500 text-2xl mb-2"><ion-icon name="document-text"></ion-icon></div><h3 class="font-bold text-gray-900">Simulados</h3>
                     </div>
                     <div data-action="show-free-study" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:border-gray-300 hover:shadow-md transition cursor-pointer">
-                        <div class="text-gray-500 text-2xl mb-2"><ion-icon name="library"></ion-icon></div>
-                        <h3 class="font-bold text-gray-900">Estudo Livre</h3>
+                        <div class="text-gray-500 text-2xl mb-2"><ion-icon name="library"></ion-icon></div><h3 class="font-bold text-gray-900">Estudo Livre</h3>
                     </div>
                 </div>
             </div>
-
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <h3 class="text-lg font-bold text-gray-900 mb-4">Desempenho</h3>
-                <div class="relative h-64 w-full">
-                    <canvas id="performanceChart"></canvas>
-                </div>
+                <div class="relative h-64 w-full"><canvas id="performanceChart"></canvas></div>
                 <div class="mt-6 pt-4 border-t border-gray-100 text-center">
                     <button data-action="resetar-desempenho" class="text-xs text-red-400 hover:text-red-600 font-medium">Resetar progresso</button>
                 </div>
@@ -668,95 +650,28 @@ function renderStudentDashboard(userData, stats) {
 function renderFreeStudyMenu() {
     const botoes = Object.keys(MATERIA_VARIACOES).map(key => {
         const nomeBonito = MATERIA_VARIACOES[key][0];
-        return `
-            <button data-action="start-study-session" data-materia="${key}" 
-                    class="p-4 bg-white border border-gray-200 rounded-xl hover:border-blue-500 hover:shadow-md transition text-left flex items-center gap-3 group">
-                <div class="w-2 h-2 rounded-full bg-blue-500 group-hover:scale-125 transition"></div>
-                <span class="font-medium text-gray-700 group-hover:text-blue-700">${nomeBonito}</span>
-            </button>
-        `;
+        return `<button data-action="start-study-session" data-materia="${key}" class="p-4 bg-white border border-gray-200 rounded-xl hover:border-blue-500 hover:shadow-md transition text-left flex items-center gap-3 group"><div class="w-2 h-2 rounded-full bg-blue-500 group-hover:scale-125 transition"></div><span class="font-medium text-gray-700 group-hover:text-blue-700">${nomeBonito}</span></button>`;
     }).join('');
-
-    return `
-        <div class="max-w-4xl mx-auto">
-            <button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2">
-                <ion-icon name="arrow-back"></ion-icon> Voltar
-            </button>
-            <h2 class="text-2xl font-bold text-gray-900 mb-6">Escolha uma Matéria</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${botoes}</div>
-        </div>
-    `;
+    return `<div class="max-w-4xl mx-auto"><button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button><h2 class="text-2xl font-bold text-gray-900 mb-6">Escolha uma Matéria</h2><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${botoes}</div></div>`;
 }
 
 function renderSimuladosMenu() {
-    const edicoes = [
-        { num: "38", rom: "XXXVIII" }, { num: "37", rom: "XXXVII" },
-        { num: "36", rom: "XXXVI" }, { num: "35", rom: "XXXV" },
-        { num: "34", rom: "XXXIV" }, { num: "33", rom: "XXXIII" }
-    ];
-    return `
-        <button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button>
-        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 max-w-lg mx-auto mt-8">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6">Simulados</h2>
-            <label class="block text-sm font-medium text-gray-700 mb-2">Por Edição</label>
-            <select id="select-simulado-edicao" class="w-full p-3 border border-gray-300 rounded-lg mb-4">
-                <option value="">Selecione...</option>
-                ${edicoes.map(e => `<option value="${e.num},${e.rom}">Exame ${e.rom}</option>`).join('')}
-            </select>
-            <button data-action="start-simulado-edicao-dropdown" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mb-6">Iniciar Edição</button>
-            <hr class="mb-6">
-            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Aleatório (80 Questões)</button>
-        </div>
-    `;
+    const edicoes = [{ num: "38", rom: "XXXVIII" }, { num: "37", rom: "XXXVII" }, { num: "36", rom: "XXXVI" }, { num: "35", rom: "XXXV" }, { num: "34", rom: "XXXIV" }, { num: "33", rom: "XXXIII" }];
+    return `<button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button><div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 max-w-lg mx-auto mt-8"><h2 class="text-2xl font-bold text-gray-800 mb-6">Simulados</h2><label class="block text-sm font-medium text-gray-700 mb-2">Por Edição</label><select id="select-simulado-edicao" class="w-full p-3 border border-gray-300 rounded-lg mb-4"><option value="">Selecione...</option>${edicoes.map(e => `<option value="${e.num},${e.rom}">Exame ${e.rom}</option>`).join('')}</select><button data-action="start-simulado-edicao-dropdown" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mb-6">Iniciar Edição</button><hr class="mb-6"><button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Aleatório (80 Questões)</button></div>`;
 }
 
 function renderPlanner_TarefaDoDia(userData, cicloIndex) {
     const materiaKey = CICLO_DE_ESTUDOS[cicloIndex] || CICLO_DE_ESTUDOS[0];
     const nomeMateria = MATERIA_VARIACOES[materiaKey] ? MATERIA_VARIACOES[materiaKey][0] : materiaKey;
-    
-    return `
-        <button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button>
-        <div class="bg-white p-8 rounded-2xl border-l-8 border-blue-500 shadow-lg max-w-2xl mx-auto mt-10">
-            <h2 class="text-3xl font-bold text-gray-900 mb-2">Meta de Hoje</h2>
-            <div class="flex items-center gap-4 mb-8 mt-6">
-                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-3xl">
-                    <ion-icon name="target"></ion-icon>
-                </div>
-                <div>
-                    <p class="text-sm text-gray-500 uppercase font-bold">Matéria do Ciclo</p>
-                    <p class="text-2xl font-bold text-blue-600 capitalize">${nomeMateria}</p>
-                </div>
-            </div>
-            <button data-action="start-study-session" data-materia="${materiaKey}" 
-                    class="w-full bg-blue-600 text-white py-4 rounded-xl text-xl font-bold hover:bg-blue-700 transition shadow-lg">
-                Iniciar ${userData.metaDiaria} Questões
-            </button>
-        </div>
-    `;
+    return `<button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button><div class="bg-white p-8 rounded-2xl border-l-8 border-blue-500 shadow-lg max-w-2xl mx-auto mt-10"><h2 class="text-3xl font-bold text-gray-900 mb-2">Meta de Hoje</h2><div class="flex items-center gap-4 mb-8 mt-6"><div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-3xl"><ion-icon name="target"></ion-icon></div><div><p class="text-sm text-gray-500 uppercase font-bold">Matéria do Ciclo</p><p class="text-2xl font-bold text-blue-600 capitalize">${nomeMateria}</p></div></div><button data-action="start-study-session" data-materia="${materiaKey}" class="w-full bg-blue-600 text-white py-4 rounded-xl text-xl font-bold hover:bg-blue-700 transition shadow-lg">Iniciar ${userData.metaDiaria} Questões</button></div>`;
 }
 
 function renderPlannerSetupForm() {
-    return `
-        <div class="bg-white p-8 rounded-lg shadow-xl border border-gray-200 max-w-lg mx-auto mt-10">
-            <h2 class="text-2xl font-bold text-gray-900 mb-4">Configurar Planner</h2>
-            <p class="text-gray-600 mb-6">Quantas questões você quer fazer por dia?</p>
-            <form id="form-planner-setup" class="space-y-4">
-                <input type="number" id="metaDiaria" min="5" value="20" required class="w-full px-4 py-2 border rounded-lg">
-                <button type="submit" class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700">Salvar e Iniciar</button>
-            </form>
-        </div>
-    `;
+    return `<div class="bg-white p-8 rounded-lg shadow-xl border border-gray-200 max-w-lg mx-auto mt-10"><h2 class="text-2xl font-bold text-gray-900 mb-4">Configurar Planner</h2><p class="text-gray-600 mb-6">Quantas questões você quer fazer por dia?</p><form id="form-planner-setup" class="space-y-4"><input type="number" id="metaDiaria" min="5" value="20" required class="w-full px-4 py-2 border rounded-lg"><button type="submit" class="w-full px-4 py-2 text-lg font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700">Salvar e Iniciar</button></form></div>`;
 }
 
 function renderAdminDashboard(userData) {
-    return `
-        <div class="p-8 text-center">
-            <h1 class="text-2xl font-bold">Painel Admin</h1>
-            <p>Bem-vindo, ${userData.nome}.</p>
-            <button data-action="show-create-question-form" class="mt-4 bg-green-600 text-white px-4 py-2 rounded">Criar Questão</button>
-            <button data-action="student-voltar-menu" class="mt-4 bg-gray-500 text-white px-4 py-2 rounded">Sair</button>
-        </div>
-    `;
+    return `<div class="p-8 text-center"><h1 class="text-2xl font-bold">Painel Admin</h1><p>Bem-vindo, ${userData.nome}.</p><button data-action="show-create-question-form" class="mt-4 bg-green-600 text-white px-4 py-2 rounded">Criar Questão</button><button data-action="student-voltar-menu" class="mt-4 bg-gray-500 text-white px-4 py-2 rounded">Sair</button></div>`;
 }
 
 function renderCreateQuestionForm() {
@@ -769,11 +684,9 @@ function renderLoadingState() {
 
 async function handleResetarDesempenho() {
     if(!confirm("Tem certeza? Isso apagará todo o seu progresso.")) return;
-    // Implementar lógica de reset real aqui se necessário
     alert("Função de reset em desenvolvimento.");
 }
 
-// Configuração de Navegação
 function setupNavigation() {
     const buttons = document.querySelectorAll('.nav-button');
     buttons.forEach(btn => {
@@ -781,7 +694,6 @@ function setupNavigation() {
             e.preventDefault();
             buttons.forEach(b => b.classList.remove('active', 'border-blue-600', 'text-blue-600'));
             btn.classList.add('active', 'border-blue-600', 'text-blue-600');
-            
             const viewName = btn.dataset.view;
             if (viewName === 'dashboard') loadDashboard(auth.currentUser);
             else if (viewName === 'ciclo') abrirPlannerGuiado();
