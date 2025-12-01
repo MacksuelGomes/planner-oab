@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (PLANNER AUTOMÁTICO + META EXATA)
+ * ARQUIVO: js/main.js (VERSÃO FINAL 2.0 - COM INTELIGÊNCIA DE DADOS)
  * ========================================================
  */
 
@@ -8,10 +8,10 @@
 import { auth, db } from './auth.js'; 
 import { 
     doc, getDoc, collection, getDocs, query, where, updateDoc,
-    setDoc, increment, limit, Timestamp, deleteDoc
+    setDoc, increment, limit, Timestamp, deleteDoc, orderBy
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-console.log("🚀 main.js: Carregado (Planner Inteligente).");
+console.log("🚀 main.js: Carregado (Versão 2.0 - Intelligence).");
 
 // --- [ CONFIGURAÇÃO: MAPA DE VARIAÇÕES ] ---
 const MATERIA_VARIACOES = {
@@ -34,7 +34,6 @@ const MATERIA_VARIACOES = {
     "filosofia": ["Filosofia do Direito", "Filosofia"]
 };
 
-// Ordem do Ciclo de Estudos (Personalizável)
 const CICLO_DE_ESTUDOS = [
     "etica", "constitucional", "civil", "processo_civil", "penal", 
     "processo_penal", "administrativo", "tributario", "trabalho", 
@@ -47,12 +46,13 @@ let quizQuestoes = [];
 let quizIndexAtual = 0;
 let alternativaSelecionada = null;
 let respostaConfirmada = false;
-let metaQuestoesDoDia = 20; // Valor padrão, será sobrescrito pelo perfil
+let metaQuestoesDoDia = 20;
 let quizReturnPath = 'menu';
 let quizTitle = 'Estudo';
 let quizReport = { acertos: 0, erros: 0, total: 0 };
 let quizTempoRestante = null;
 let cronometroInterval = null;
+let isSimuladoMode = false; // NOVA VARIÁVEL: Controla se mostra feedback ou não
 
 // --- [ INICIALIZAÇÃO ] ---
 window.initApp = async function(uid) {
@@ -73,7 +73,7 @@ window.initApp = async function(uid) {
     await loadDashboard({ uid: uid });
 };
 
-// --- [ DASHBOARD ] ---
+// --- [ DASHBOARD & ESTATÍSTICAS ] ---
 export async function loadDashboard(user) {
     if (cronometroInterval) clearInterval(cronometroInterval);
     appContent.innerHTML = renderLoadingState();
@@ -84,17 +84,16 @@ export async function loadDashboard(user) {
         
         if (userDoc.exists()) {
             const userData = userDoc.data();
-            
-            // Atualiza meta global com a do usuário
-            if (userData.metaDiaria) metaQuestoesDoDia = userData.metaDiaria;
-
             await atualizarSequenciaDias(userData, userDocRef);
 
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
+                // Carrega estatísticas gerais e TOP TEMAS (Raio-X)
                 const stats = await calcularEstatisticasEstudo(user.uid);
-                appContent.innerHTML = renderStudentDashboard(userData, stats);
+                const topTemas = await getTopTemasComErro(user.uid); // Nova Função
+                
+                appContent.innerHTML = renderStudentDashboard(userData, stats, topTemas);
                 
                 if (stats.chartLabels.length > 0) {
                     setTimeout(() => {
@@ -159,7 +158,33 @@ async function calcularEstatisticasEstudo(uid) {
     return { totalResolvidas, totalAcertos, taxaGlobal, chartLabels, chartData };
 }
 
-// --- [ GRÁFICO ] ---
+// NOVA FUNÇÃO: RAIO-X POR TEMA
+async function getTopTemasComErro(uid) {
+    try {
+        const temasRef = collection(db, 'users', uid, 'progresso_temas');
+        const q = query(temasRef, orderBy('erros', 'desc'), limit(5)); // Pega os 5 temas com mais erros
+        const snapshot = await getDocs(q);
+        
+        const temas = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.erros > 0) {
+                // Recupera nome original (guardado no doc) ou usa o ID formatado
+                temas.push({
+                    nome: data.nomeOriginal || doc.id.replace(/_/g, ' '),
+                    erros: data.erros,
+                    acertos: data.acertos || 0
+                });
+            }
+        });
+        return temas;
+    } catch (e) {
+        console.warn("Erro ao carregar top temas:", e);
+        return [];
+    }
+}
+
+// --- [ GRÁFICO (Chart.js) ] ---
 function renderPerformanceChart(labels, data) {
     const ctx = document.getElementById('performanceChart');
     if (!ctx) return;
@@ -193,7 +218,7 @@ function renderPerformanceChart(labels, data) {
 
 // --- [ CONTROLADOR DE EVENTOS ] ---
 document.addEventListener('click', async (e) => {
-    // Seleção de Alternativa
+    // 1. Seleção Visual
     const alternativaEl = e.target.closest('[data-alternativa]');
     if (alternativaEl && !respostaConfirmada) {
         document.querySelectorAll('[data-alternativa]').forEach(el => {
@@ -207,6 +232,7 @@ document.addEventListener('click', async (e) => {
 
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
+
     const action = btn.dataset.action;
     
     try {
@@ -215,30 +241,25 @@ document.addEventListener('click', async (e) => {
                 quizReturnPath = 'menu';
                 appContent.innerHTML = renderFreeStudyMenu(); 
                 break;
-            
             case 'start-study-session': 
-                // Se vier do botão do Planner, usa a quantidade definida no atributo data-quantidade
-                // Se vier do Estudo Livre, usa padrão 50
                 const qtd = btn.dataset.quantidade ? parseInt(btn.dataset.quantidade) : 50;
-                
-                // Se vier do Planner, define o caminho de volta para atualizar o ciclo
-                if (btn.dataset.source === 'planner') {
-                    quizReturnPath = 'planner';
-                } else {
-                    quizReturnPath = 'menu';
-                }
-
+                quizReturnPath = (btn.dataset.source === 'planner') ? 'planner' : 'menu';
                 await handleStartStudySession(btn.dataset.materia, qtd); 
                 break;
             
             case 'show-guided-planner': await abrirPlannerGuiado(); break;
-            
             case 'show-simulados-menu': 
                 quizReturnPath = 'simulados';
                 appContent.innerHTML = renderSimuladosMenu(); 
                 break;
-            case 'start-simulado-edicao-dropdown': await handleStartSimuladoDropdown(); break;
-            case 'start-simulado-assertivo': await handleStartSimuladoAssertivo(); break;
+            
+            // --- INÍCIO DE SIMULADOS (COM VERIFICAÇÃO DE MODO) ---
+            case 'start-simulado-edicao-dropdown': 
+                await handleStartSimuladoDropdown(); 
+                break;
+            case 'start-simulado-assertivo': 
+                await handleStartSimuladoAssertivo(); 
+                break;
 
             case 'show-caderno-erros': 
                 quizReturnPath = 'erros'; 
@@ -284,7 +305,6 @@ async function abrirPlannerGuiado() {
     if (userData.metaDiaria) {
         let idx = userData.cicloIndex || 0;
         if (idx >= CICLO_DE_ESTUDOS.length) idx = 0;
-        // Passa a meta diária e o índice atual para renderizar o card correto
         appContent.innerHTML = renderPlanner_TarefaDoDia(userData, idx);
     } else {
         appContent.innerHTML = renderPlannerSetupForm();
@@ -302,21 +322,18 @@ async function handleSavePlannerSetup(form) {
     } catch(e) { console.error(e); }
 }
 
-// --- [ LÓGICA: QUIZ E BUSCA INTELIGENTE ] ---
+// --- [ LÓGICA: QUIZ E BUSCA ] ---
 async function handleStartStudySession(materiaKey, limitQtd = 50) {
     appContent.innerHTML = renderLoadingState();
     
     const variacoes = MATERIA_VARIACOES[materiaKey] || [materiaKey];
-    console.log(`🔍 Buscando ${limitQtd} questões de: ${variacoes.join(' OU ')}`);
-
+    
     try {
-        // Agora usamos o 'limitQtd' que vem da meta do usuário
         const q = query(
             collection(db, 'questoes_oab'), 
             where("materia", "in", variacoes), 
-            limit(limitQtd) // AQUI ESTÁ A MÁGICA: Limita exatamente à meta
+            limit(limitQtd)
         );
-        
         const snapshot = await getDocs(q);
         
         if (snapshot.empty) {
@@ -328,11 +345,13 @@ async function handleStartStudySession(materiaKey, limitQtd = 50) {
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
         questoes.sort(() => Math.random() - 0.5); 
 
-        // Atualiza a variável global caso seja usada em outro lugar
-        metaQuestoesDoDia = limitQtd;
+        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        metaQuestoesDoDia = userDoc.data()?.metaDiaria || 20;
 
         const nomeMateria = MATERIA_VARIACOES[materiaKey] ? MATERIA_VARIACOES[materiaKey][0] : materiaKey;
-        iniciarQuiz(questoes, `Meta: ${nomeMateria}`);
+        
+        // Estudo Livre e Planner não usam modo "Simulado Cego" por padrão
+        iniciarQuiz(questoes, `Estudo: ${nomeMateria}`, null, false);
 
     } catch (error) {
         appContent.innerHTML = `<p class="text-red-500 text-center mt-10">Erro: ${error.message}</p>`;
@@ -341,6 +360,9 @@ async function handleStartStudySession(materiaKey, limitQtd = 50) {
 
 async function handleStartSimuladoDropdown() {
     const select = document.getElementById('select-simulado-edicao');
+    // Verifica o Checkbox de Modo Simulado Real
+    const isModoReal = document.getElementById('chk-modo-real')?.checked || false;
+
     if (!select || !select.value) return alert("Selecione uma edição.");
     
     const [num, rom] = select.value.split(',');
@@ -352,13 +374,12 @@ async function handleStartSimuladoDropdown() {
         const q = query(collection(db, 'questoes_oab'), where("edicao", "in", variacoes));
         const snapshot = await getDocs(q);
         
-        if (snapshot.empty) {
-            return alert(`Nenhuma questão encontrada para o exame ${rom}.`);
-        }
+        if (snapshot.empty) return alert(`Nenhuma questão encontrada para o exame ${rom}.`);
         
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
-        iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60); 
+        
+        iniciarQuiz(questoes, `Simulado ${rom}`, 5 * 60 * 60, isModoReal); 
     } catch (error) {
         alert("Erro: " + error.message);
         loadDashboard(auth.currentUser);
@@ -366,6 +387,9 @@ async function handleStartSimuladoDropdown() {
 }
 
 async function handleStartSimuladoAssertivo() {
+    // Verifica o Checkbox de Modo Simulado Real
+    const isModoReal = document.getElementById('chk-modo-real')?.checked || false;
+    
     appContent.innerHTML = renderLoadingState();
     try {
         const q = query(collection(db, 'questoes_oab'), limit(200)); 
@@ -373,7 +397,8 @@ async function handleStartSimuladoAssertivo() {
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
         questoes.sort(() => Math.random() - 0.5);
-        iniciarQuiz(questoes.slice(0, 80), "Simulado Assertivo", 5 * 60 * 60);
+        
+        iniciarQuiz(questoes.slice(0, 80), "Simulado Assertivo", 5 * 60 * 60, isModoReal);
     } catch (error) { console.error(error); }
 }
 
@@ -388,7 +413,7 @@ async function handleStartCaderno(colecaoNome, titulo) {
         }
         const questoes = [];
         snapshot.forEach(doc => questoes.push({ ...doc.data(), id: doc.id }));
-        iniciarQuiz(questoes, titulo);
+        iniciarQuiz(questoes, titulo, null, false);
     } catch (error) { alert("Erro: " + error.message); }
 }
 
@@ -416,10 +441,10 @@ async function handleResetarDesempenho() {
             await Promise.all(promises);
         };
         await deleteSub('progresso');
+        await deleteSub('progresso_temas'); // Apaga também os temas
         await deleteSub('questoes_erradas');
         await deleteSub('questoes_acertadas');
         
-        // Zera o ciclo e a sequência
         await updateDoc(doc(db, 'users', uid), {
             cicloIndex: 0,
             sequenciaDias: 0,
@@ -436,7 +461,7 @@ async function handleResetarDesempenho() {
 
 // --- [ EXECUÇÃO DO QUIZ ] ---
 
-function iniciarQuiz(questoes, titulo, tempo = null) {
+function iniciarQuiz(questoes, titulo, tempo = null, modoSimulado = false) {
     quizQuestoes = questoes;
     quizIndexAtual = 0;
     alternativaSelecionada = null;
@@ -444,6 +469,8 @@ function iniciarQuiz(questoes, titulo, tempo = null) {
     quizTitle = titulo;
     quizReport = { acertos: 0, erros: 0, total: 0 };
     quizTempoRestante = tempo;
+    isSimuladoMode = modoSimulado; // Define o modo globalmente para a sessão
+    
     renderQuizUI();
     if (tempo) startCronometro();
 }
@@ -483,11 +510,20 @@ function renderQuizUI() {
         `;
     }).join('');
 
+    // Adiciona o Botão de Chute (Se não for Simulado Cego, pois simulado já é difícil por natureza)
+    // Ou podemos deixar no simulado também. Vamos deixar sempre visível para coleta de dados.
+    const chuteHtml = `
+        <label class="flex items-center gap-2 cursor-pointer mt-4 mb-2 p-2 bg-yellow-50 rounded border border-yellow-200 w-fit">
+            <input type="checkbox" id="chk-chute" class="w-4 h-4 text-yellow-600 rounded focus:ring-yellow-500">
+            <span class="text-sm font-medium text-yellow-800">🤔 Responder com Dúvida (Chute)</span>
+        </label>
+    `;
+
     appContent.innerHTML = `
         <div class="max-w-3xl mx-auto pb-20">
             <div class="flex justify-between items-center mb-6">
                 <div>
-                    <h2 class="text-xl font-bold text-gray-900">${quizTitle}</h2>
+                    <h2 class="text-xl font-bold text-gray-900">${quizTitle} ${isSimuladoMode ? '<span class="text-xs bg-red-100 text-red-600 px-2 py-1 rounded ml-2">MODO PROVA</span>' : ''}</h2>
                     <p class="text-sm text-gray-500">Questão ${quizIndexAtual + 1} de ${quizQuestoes.length}</p>
                 </div>
                 ${timerHtml}
@@ -500,11 +536,12 @@ function renderQuizUI() {
                     <p class="text-lg font-medium text-gray-900 leading-relaxed mt-2">${questao.enunciado}</p>
                 </div>
                 <div class="space-y-3">${htmlAlts}</div>
+                ${chuteHtml}
             </div>
             <div id="quiz-feedback-area" class="hidden mb-20"></div>
             <div class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 flex justify-between items-center z-10 md:static md:bg-transparent md:border-0">
                 <button data-action="sair-quiz" class="text-gray-500 font-medium hover:text-red-600">Sair</button>
-                <button id="btn-quiz-action" data-action="confirmar-resposta" class="bg-gray-900 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:bg-black transition transform active:scale-95">Confirmar Resposta</button>
+                <button id="btn-quiz-action" data-action="confirmar-resposta" class="bg-gray-900 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:bg-black transition transform active:scale-95">Confirmar</button>
             </div>
         </div>
     `;
@@ -512,17 +549,21 @@ function renderQuizUI() {
 
 async function handleConfirmarResposta() {
     if (!alternativaSelecionada) return alert("Selecione uma alternativa!");
-    if (respostaConfirmada) return;
+    if (respostaConfirmada && !isSimuladoMode) return; // Se já confirmou e não é simulado, ignora
 
     respostaConfirmada = true;
     const questao = quizQuestoes[quizIndexAtual];
     const correta = String(questao.correta).toLowerCase().trim();
     const selecionada = String(alternativaSelecionada).toLowerCase().trim();
     const acertou = correta === selecionada;
+    
+    // Verifica se foi marcado como chute
+    const isChute = document.getElementById('chk-chute')?.checked || false;
 
     quizReport.total++;
     if (acertou) quizReport.acertos++; else quizReport.erros++;
 
+    // SALVAMENTO NO BANCO (BACKGROUND)
     try {
         const userUid = auth.currentUser.uid;
         let materiaKey = "geral";
@@ -530,26 +571,65 @@ async function handleConfirmarResposta() {
             if (values.includes(questao.materia)) { materiaKey = key; break; }
         }
 
+        // 1. Salva Estatística Geral
         const progRef = doc(db, 'users', userUid, 'progresso', materiaKey);
         await setDoc(progRef, {
             totalResolvidas: increment(1),
             totalAcertos: increment(acertou ? 1 : 0)
         }, { merge: true });
 
-        const collectionName = acertou ? 'questoes_acertadas' : 'questoes_erradas';
-        const cadernoRef = doc(db, 'users', userUid, collectionName, String(questao.id));
-        await setDoc(cadernoRef, { ...questao, dataResolucao: Timestamp.now() });
+        // 2. SALVA NOVO RAIO-X POR TEMA (Feature Nova)
+        if (questao.tema) {
+            // Sanitiza nome do tema para usar como ID (sem espaços/acentos)
+            const temaId = questao.tema.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "_");
+            const temaRef = doc(db, 'users', userUid, 'progresso_temas', temaId);
+            await setDoc(temaRef, {
+                nomeOriginal: questao.tema,
+                resolvidas: increment(1),
+                acertos: increment(acertou ? 1 : 0),
+                erros: increment(acertou ? 0 : 1)
+            }, { merge: true });
+        }
 
-        if (acertou) {
+        // 3. Lógica Inteligente de Cadernos (Chute = Erro para fins de revisão)
+        const collectionName = (acertou && !isChute) ? 'questoes_acertadas' : 'questoes_erradas';
+        const cadernoRef = doc(db, 'users', userUid, collectionName, String(questao.id));
+        
+        // Se for Chute e Acertou, adiciona uma flag para o aluno saber depois
+        const dataToSave = { ...questao, dataResolucao: Timestamp.now() };
+        if (acertou && isChute) dataToSave.revisaoPorChute = true;
+
+        await setDoc(cadernoRef, dataToSave);
+
+        // Se acertou (e não foi chute), remove dos erros. 
+        // Se foi chute, mantemos nos erros/revisão.
+        if (acertou && !isChute) {
             await deleteDoc(doc(db, 'users', userUid, 'questoes_erradas', String(questao.id)));
         }
     } catch (e) { console.error("Erro ao salvar:", e); }
 
+    // SE FOR MODO SIMULADO: Não mostra feedback, apenas avança
+    if (isSimuladoMode) {
+        handleProximaQuestao();
+        return;
+    }
+
+    // MODO ESTUDO: Mostra Feedback
     const feedbackArea = document.getElementById('quiz-feedback-area');
     feedbackArea.classList.remove('hidden');
+    
+    let feedbackClass = acertou ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200';
+    let feedbackTitle = acertou ? 'Acertou! 🎉' : 'Errou 😔';
+    
+    if (acertou && isChute) {
+        feedbackClass = 'bg-yellow-50 border-yellow-200';
+        feedbackTitle = 'Acertou (Chute) ⚠️';
+    }
+
     feedbackArea.innerHTML = `
-        <div class="p-6 rounded-xl border ${acertou ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}">
-            <h3 class="font-bold ${acertou ? 'text-green-800' : 'text-red-800'} mb-2 text-xl">${acertou ? 'Acertou! 🎉' : 'Errou 😔'}</h3>
+        <div class="p-6 rounded-xl border ${feedbackClass}">
+            <h3 class="font-bold ${acertou ? (isChute ? 'text-yellow-800' : 'text-green-800') : 'text-red-800'} mb-2 text-xl">${feedbackTitle}</h3>
+            ${acertou && isChute ? '<p class="text-sm text-yellow-700 mb-2">Salvamos esta questão no seu Caderno de Erros para você revisar depois.</p>' : ''}
             <p class="text-gray-700 mb-2">A alternativa correta é a <strong>${correta.toUpperCase()}</strong>.</p>
             ${questao.comentario ? `<div class="mt-4 p-4 bg-white/50 rounded text-sm text-gray-800 border border-gray-200"><strong>Comentário:</strong> ${questao.comentario}</div>` : ''}
         </div>
@@ -564,14 +644,11 @@ async function handleConfirmarResposta() {
 
 async function handleProximaQuestao() {
     quizIndexAtual++;
+    const fimPorMeta = (quizReturnPath === 'menu' && quizIndexAtual >= metaQuestoesDoDia);
     
-    // Verifica se acabou as questões do array (que agora tem o tamanho exato da meta)
-    if (quizIndexAtual >= quizQuestoes.length) {
+    if (quizIndexAtual >= quizQuestoes.length || fimPorMeta) {
         renderRelatorioFinal();
-        
-        // SE FOR PLANNER: Gira a chave do ciclo automaticamente
-        if (quizReturnPath === 'planner') {
-            console.log("🔄 Ciclo concluído! Avançando matéria...");
+        if (quizReturnPath === 'planner') { // Corrigido para 'planner'
             const user = auth.currentUser;
             const ref = doc(db, 'users', user.uid);
             getDoc(ref).then(snap => {
@@ -591,7 +668,7 @@ function renderRelatorioFinal() {
     const perc = quizReport.total > 0 ? ((quizReport.acertos / quizReport.total) * 100).toFixed(0) : 0;
     appContent.innerHTML = `
         <div class="text-center max-w-md mx-auto pt-10">
-            <h2 class="text-3xl font-bold text-gray-900 mb-2">Meta Cumprida! 🎯</h2>
+            <h2 class="text-3xl font-bold text-gray-900 mb-2">Sessão Concluída!</h2>
             <div class="grid grid-cols-3 gap-4 mb-8 mt-8">
                 <div class="bg-green-50 p-4 rounded-xl border border-green-100">
                     <p class="text-xs font-bold text-green-600 uppercase">Acertos</p>
@@ -614,7 +691,20 @@ function renderRelatorioFinal() {
 }
 
 // --- [ VIEWS ] ---
-function renderStudentDashboard(userData, stats) {
+function renderStudentDashboard(userData, stats, topTemas) {
+    // Gera HTML da lista de temas fracos
+    let temasHtml = '';
+    if (topTemas.length > 0) {
+        temasHtml = `<ul class="space-y-3 mt-4">` + topTemas.map(t => `
+            <li class="flex justify-between items-center text-sm border-b border-gray-100 pb-2">
+                <span class="text-gray-700 truncate w-3/4">${t.nome}</span>
+                <span class="font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded">${t.erros} erros</span>
+            </li>
+        `).join('') + `</ul>`;
+    } else {
+        temasHtml = `<p class="text-sm text-gray-400 mt-4 italic">Continue estudando para gerar seu Raio-X.</p>`;
+    }
+
     return `
         <header class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900">Olá, <span class="text-blue-600">${userData.nome || 'Aluno'}</span>! 👋</h1>
@@ -662,10 +752,23 @@ function renderStudentDashboard(userData, stats) {
                     </div>
                 </div>
             </div>
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                <h3 class="text-lg font-bold text-gray-900 mb-4">Desempenho</h3>
-                <div class="relative h-64 w-full"><canvas id="performanceChart"></canvas></div>
-                <div class="mt-6 pt-4 border-t border-gray-100 text-center">
+            
+            <div class="space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <h3 class="text-lg font-bold text-gray-900 mb-4">Desempenho Geral</h3>
+                    <div class="relative h-48 w-full"><canvas id="performanceChart"></canvas></div>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <div class="flex items-center gap-2 mb-2">
+                        <ion-icon name="warning" class="text-orange-500"></ion-icon>
+                        <h3 class="text-lg font-bold text-gray-900">Pontos de Atenção</h3>
+                    </div>
+                    <p class="text-xs text-gray-500">Temas que você mais errou recentemente:</p>
+                    ${temasHtml}
+                </div>
+
+                <div class="text-center pt-2">
                     <button data-action="resetar-desempenho" class="text-xs text-red-400 hover:text-red-600 font-medium">Resetar progresso</button>
                 </div>
             </div>
@@ -676,7 +779,7 @@ function renderStudentDashboard(userData, stats) {
 function renderFreeStudyMenu() {
     const botoes = Object.keys(MATERIA_VARIACOES).map(key => {
         const nomeBonito = MATERIA_VARIACOES[key][0];
-        return `<button data-action="start-study-session" data-materia="${key}" data-source="freestudy" class="p-4 bg-white border border-gray-200 rounded-xl hover:border-blue-500 hover:shadow-md transition text-left flex items-center gap-3 group"><div class="w-2 h-2 rounded-full bg-blue-500 group-hover:scale-125 transition"></div><span class="font-medium text-gray-700 group-hover:text-blue-700">${nomeBonito}</span></button>`;
+        return `<button data-action="start-study-session" data-materia="${key}" class="p-4 bg-white border border-gray-200 rounded-xl hover:border-blue-500 hover:shadow-md transition text-left flex items-center gap-3 group"><div class="w-2 h-2 rounded-full bg-blue-500 group-hover:scale-125 transition"></div><span class="font-medium text-gray-700 group-hover:text-blue-700">${nomeBonito}</span></button>`;
     }).join('');
     return `<div class="max-w-4xl mx-auto"><button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button><h2 class="text-2xl font-bold text-gray-900 mb-6">Escolha uma Matéria</h2><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${botoes}</div></div>`;
 }
@@ -695,24 +798,34 @@ function renderSimuladosMenu() {
         return roman;
     }
 
-    // Gera lista do 45 até o 4
     let optionsHtml = '<option value="">Selecione...</option>';
     for (let i = 45; i >= 4; i--) {
         const rom = toRoman(i);
         optionsHtml += `<option value="${i},${rom}">Exame ${rom}</option>`;
     }
 
+    // CHECKBOX NOVO: MODO REAL
     return `
         <button data-action="student-voltar-menu" class="mb-6 text-gray-500 hover:text-gray-900 flex items-center gap-2"><ion-icon name="arrow-back"></ion-icon> Voltar</button>
         <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 max-w-lg mx-auto mt-8">
             <h2 class="text-2xl font-bold text-gray-800 mb-6">Simulados</h2>
+            
             <label class="block text-sm font-medium text-gray-700 mb-2">Por Edição</label>
             <select id="select-simulado-edicao" class="w-full p-3 border border-gray-300 rounded-lg mb-4">
                 ${optionsHtml}
             </select>
+
+            <div class="mb-6 bg-gray-50 p-3 rounded border border-gray-200">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="chk-modo-real" class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500">
+                    <span class="text-sm font-bold text-gray-800">🛡️ Modo Prova Real</span>
+                </label>
+                <p class="text-xs text-gray-500 ml-6 mt-1">Sem feedback imediato. Resultado só no final.</p>
+            </div>
+
             <button data-action="start-simulado-edicao-dropdown" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mb-6">Iniciar Edição</button>
             <hr class="mb-6">
-            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Assertivo (80 Questões)</button>
+            <button data-action="start-simulado-assertivo" class="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700">Simulado Aleatório (80 Questões)</button>
         </div>
     `;
 }
@@ -727,22 +840,10 @@ function renderPlanner_TarefaDoDia(userData, cicloIndex) {
         <div class="bg-white p-8 rounded-2xl border-l-8 border-blue-500 shadow-lg max-w-2xl mx-auto mt-10">
             <h2 class="text-3xl font-bold text-gray-900 mb-2">Meta de Hoje</h2>
             <div class="flex items-center gap-4 mb-8 mt-6">
-                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-3xl">
-                    <ion-icon name="target"></ion-icon>
-                </div>
-                <div>
-                    <p class="text-sm text-gray-500 uppercase font-bold">Matéria do Ciclo</p>
-                    <p class="text-2xl font-bold text-blue-600 capitalize">${nomeMateria}</p>
-                </div>
+                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-3xl"><ion-icon name="target"></ion-icon></div>
+                <div><p class="text-sm text-gray-500 uppercase font-bold">Matéria do Ciclo</p><p class="text-2xl font-bold text-blue-600 capitalize">${nomeMateria}</p></div>
             </div>
-            
-            <button data-action="start-study-session" 
-                    data-materia="${materiaKey}" 
-                    data-quantidade="${meta}"
-                    data-source="planner"
-                    class="w-full bg-blue-600 text-white py-4 rounded-xl text-xl font-bold hover:bg-blue-700 transition shadow-lg">
-                Iniciar ${meta} Questões
-            </button>
+            <button data-action="start-study-session" data-materia="${materiaKey}" data-quantidade="${meta}" data-source="planner" class="w-full bg-blue-600 text-white py-4 rounded-xl text-xl font-bold hover:bg-blue-700 transition shadow-lg">Iniciar ${meta} Questões</button>
         </div>
     `;
 }
