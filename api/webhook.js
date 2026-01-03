@@ -15,13 +15,11 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 export default async function handler(req, res) {
-  // A Vercel usa 'req.method' em vez de 'event.httpMethod'
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
 
   try {
-    // A Vercel já entrega o corpo da requisição (body) pronto, não precisa de JSON.parse
     const data = req.body;
 
     if (data.type === 'checkout.session.completed') {
@@ -30,38 +28,83 @@ export default async function handler(req, res) {
       
       console.log(`Venda aprovada para: ${customerEmail}`);
 
-      // A. Salva no Banco de Dados
+      // A. Gera uma senha provisória aleatória (Ex: OAB123456)
+      const senhaProvisoria = "OAB" + Math.floor(100000 + Math.random() * 900000);
+      let mensagemSenha = "";
+
+      // B. Tenta Criar o Usuário no Firebase Auth
+      try {
+        await admin.auth().createUser({
+          email: customerEmail,
+          emailVerified: true,
+          password: senhaProvisoria,
+          displayName: customerName,
+          disabled: false
+        });
+        
+        // Se criou com sucesso, a mensagem do e-mail terá a senha
+        mensagemSenha = `
+          <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Seus dados de acesso:</strong></p>
+            <p style="margin: 5px 0;">📧 Login: ${customerEmail}</p>
+            <p style="margin: 0;">🔑 Senha Provisória: <strong>${senhaProvisoria}</strong></p>
+          </div>
+          <p style="font-size: 12px; color: #666;">Recomendamos que você altere essa senha no seu primeiro acesso.</p>
+        `;
+
+        console.log("Usuário criado no Auth com sucesso!");
+
+      } catch (error) {
+        if (error.code === 'auth/email-already-exists') {
+          console.log("Usuário já existe, enviando e-mail sem senha nova.");
+          mensagemSenha = `
+            <div style="background-color: #e3f2fd; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Você já tem cadastro!</strong></p>
+              <p style="margin: 5px 0;">Use seu e-mail e senha antiga para acessar.</p>
+              <p style="margin: 0;"><a href="https://planner-oab.vercel.app/esqueci-senha.html">Esqueceu a senha? Clique aqui.</a></p>
+            </div>
+          `;
+        } else {
+          throw error; // Se for outro erro, joga pra cima
+        }
+      }
+
+      // C. Salva no Banco de Dados (Firestore) para histórico
       await db.collection('vendas_aprovadas').add({
         email: customerEmail,
+        nome: customerName,
         data_venda: new Date().toISOString(),
-        origem: 'Stripe via Vercel',
+        origem: 'Stripe Automático',
         status: 'aprovado'
       });
 
-      // B. Configuração do E-mail (Gmail ou Profissional)
-      // Se você não definir HOST e PORT, ele tenta usar o Gmail por padrão
+      // D. Configuração do E-mail (Gmail)
       const transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST || "smtp.gmail.com",
-        port: process.env.EMAIL_PORT || 465,
-        secure: true, // true para porta 465, false para outras
+        host: process.env.EMAIL_HOST,
+        port: process.env.EMAIL_PORT,
+        secure: true, 
         auth: {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASS
         }
       });
 
-      // C. Envia o E-mail
+      // E. Envia o E-mail
       const mailOptions = {
         from: `"Meu Planner OAB" <${process.env.EMAIL_USER}>`,
         to: customerEmail,
-        subject: 'Acesso Liberado! 🚀 Comece seus estudos agora',
+        subject: 'Acesso Liberado! 🚀 Aqui estão seus dados',
         html: `
-          <div style="font-family: Arial, sans-serif; color: #333;">
+          <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
             <h2>Parabéns, ${customerName}!</h2>
-            <p>Seu pagamento foi confirmado e seu acesso ao <strong>Meu Planner OAB</strong> já está liberado.</p>
-            <p>Para acessar, clique no botão abaixo e crie sua conta usando este mesmo e-mail:</p>
+            <p>Seu pagamento foi confirmado e sua conta foi criada automaticamente.</p>
+            
+            ${mensagemSenha}
+            
             <br>
-            <a href="https://appmeuplanneroab.com.br/login.html" style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">ACESSAR PLATAFORMA AGORA</a>
+            <center>
+              <a href="https://appmeuplanneroab.com.br/login.html" style="background-color: #28a745; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">ACESSAR PLATAFORMA AGORA</a>
+            </center>
             <br><br>
             <p>Bons estudos!<br>Equipe Meu Planner OAB</p>
           </div>
@@ -69,9 +112,9 @@ export default async function handler(req, res) {
       };
 
       await transporter.sendMail(mailOptions);
-      console.log("E-mail enviado!");
+      console.log("E-mail com credenciais enviado!");
 
-      return res.status(200).json({ message: "Sucesso!" });
+      return res.status(200).json({ message: "Sucesso! Usuário criado e e-mail enviado." });
     }
 
     return res.status(200).send("Evento recebido.");
