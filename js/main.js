@@ -1,6 +1,6 @@
 /*
  * ========================================================
- * ARQUIVO: js/main.js (VERSÃO FINAL 5.0 - ADMIN COMPLETO)
+ * ARQUIVO: js/main.js (VERSÃO FINAL 5.1 - ACESSO AUTOMÁTICO)
  * ========================================================
  */
 
@@ -10,7 +10,7 @@ import {
     setDoc, addDoc, increment, limit, Timestamp, deleteDoc, orderBy
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-console.log("🚀 main.js: Carregado (Sistema Completo).");
+console.log("🚀 main.js: Carregado (Acesso Automático Ativado).");
 
 // --- [ 1. CONFIGURAÇÃO E DADOS ] ---
 const MATERIA_VARIACOES = {
@@ -83,6 +83,20 @@ export async function loadDashboard(user) {
             if (userData.isAdmin === true) {
                 appContent.innerHTML = renderAdminDashboard(userData);
             } else {
+                // --- [ CORREÇÃO: AUTO-LIBERAÇÃO DE ACESSO ] ---
+                // Se o usuário não for admin e o status não for 'ativo',
+                // nós atualizamos o banco de dados agora mesmo para liberar a entrada.
+                if (userData.status !== 'ativo') {
+                    try {
+                        await updateDoc(userDocRef, { status: 'ativo' });
+                        userData.status = 'ativo'; // Atualiza localmente para não travar
+                        console.log("🔓 Usuário liberado automaticamente pelo sistema.");
+                    } catch (errAuto) {
+                        console.error("Erro na auto-liberação:", errAuto);
+                    }
+                }
+                // --------------------------------------------------
+
                 await atualizarSequenciaDias(userData, userDocRef);
                 const stats = await calcularEstatisticasEstudo(user.uid);
                 const topTemas = await getTopTemasComErro(user.uid);
@@ -158,6 +172,7 @@ async function renderUserManagement() {
         let rows = '';
         snapshot.forEach(doc => {
             const u = doc.data();
+            // Agora todos devem aparecer como ativos, mas mantemos a lógica caso precise
             const isPending = u.status !== 'ativo';
             const statusBadge = isPending 
                 ? `<span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-bold">PENDENTE</span>`
